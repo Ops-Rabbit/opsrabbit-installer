@@ -52,7 +52,7 @@ The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us
 
 Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRABBIT_INSTALL_DIR`, `OPSRABBIT_AWS_REGION`, `OPSRABBIT_ECR_REGISTRY`, `OPSRABBIT_DAEMON_IMAGE`, `OPSRABBIT_WEB_IMAGE`, or `OPSRABBIT_WEB_PORT`.
 
-It then installs missing prerequisites, creates the deployment user, generates persistent application secrets, logs in to ECR, pulls the images, starts the services, and checks backend and web health.
+It then installs missing prerequisites, installs the official architecture-specific AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application secrets, logs in to ECR, pulls the images, starts the services, and checks backend and web health.
 
 Use immutable image tags or digests for production rather than `latest`.
 

@@ -7,12 +7,12 @@ This bundle deploys the core OpsRabbit stack without copying application source 
 Install the tagged `v1.2.0` release on a Debian or Ubuntu host:
 
 ```bash
-curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.2.1/install.sh | sudo bash
+curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.2.2/install.sh | sudo bash
 ```
 
-This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.2.1` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
+This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.2.2` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
 
-To install another version, replace `v1.2.1` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
+To install another version, replace `v1.2.2` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
 
 ## Requirements
 
@@ -64,7 +64,7 @@ The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us
 
 Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRABBIT_INSTALL_DIR`, `OPSRABBIT_AWS_REGION`, `OPSRABBIT_ECR_REGISTRY`, `OPSRABBIT_DAEMON_IMAGE`, `OPSRABBIT_WEB_IMAGE`, or `OPSRABBIT_WEB_PORT`.
 
-It then installs missing prerequisites, creates the deployment user, generates persistent application secrets, logs in to ECR, pulls the images, starts the services, and checks backend and web health.
+It then installs missing prerequisites, installs the official architecture-specific AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application secrets, logs in to ECR, pulls the images, starts the services, and checks backend and web health.
 
 Use immutable image tags or digests for production rather than `latest`.
 

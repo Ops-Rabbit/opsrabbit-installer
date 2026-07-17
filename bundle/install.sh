@@ -38,6 +38,43 @@ yes_no() {
   [[ "${value,,}" == "y" || "${value,,}" == "yes" ]]
 }
 
+install_aws_cli() {
+  local machine_arch aws_arch download_url aws_temp_dir install_args
+
+  if command -v aws >/dev/null 2>&1; then
+    echo "AWS CLI already installed: $(aws --version 2>&1)"
+    return
+  fi
+
+  machine_arch="$(uname -m)"
+  case "${machine_arch}" in
+    x86_64|amd64) aws_arch="x86_64" ;;
+    aarch64|arm64) aws_arch="aarch64" ;;
+    *)
+      echo "AWS CLI v2 does not provide a supported installer for architecture: ${machine_arch}" >&2
+      exit 1
+      ;;
+  esac
+
+  download_url="https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip"
+  aws_temp_dir="$(mktemp -d)"
+  echo "AWS CLI not found; downloading the official AWS CLI v2 installer for ${aws_arch}..."
+  curl --fail --show-error --location --progress-bar "${download_url}" -o "${aws_temp_dir}/awscliv2.zip"
+  echo "Extracting AWS CLI v2..."
+  unzip -q "${aws_temp_dir}/awscliv2.zip" -d "${aws_temp_dir}"
+
+  install_args=(--bin-dir /usr/local/bin --install-dir /usr/local/aws-cli)
+  if [[ -d /usr/local/aws-cli ]]; then install_args+=(--update); fi
+  "${aws_temp_dir}/aws/install" "${install_args[@]}"
+  rm -rf "${aws_temp_dir}"
+
+  if ! command -v aws >/dev/null 2>&1; then
+    echo "AWS CLI installation completed but the aws command is unavailable." >&2
+    exit 1
+  fi
+  echo "AWS CLI installed: $(aws --version 2>&1)"
+}
+
 echo "OpsRabbit image-only AWS deployment installer"
 echo "This installs Docker/AWS CLI packages when missing and creates a Docker-enabled deployment user."
 echo
@@ -78,7 +115,7 @@ fi
 
 echo "[Installer 2/4] Installing and verifying host prerequisites..."
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl openssl awscli
+DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl openssl unzip
 if ! command -v docker >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
 fi
@@ -89,6 +126,7 @@ if ! docker compose version >/dev/null 2>&1; then
 fi
 systemctl enable --now docker
 docker compose version >/dev/null
+install_aws_cli
 
 echo "[Installer 3/4] Creating the deployment user and persistent configuration..."
 if ! id "${deploy_user}" >/dev/null 2>&1; then
