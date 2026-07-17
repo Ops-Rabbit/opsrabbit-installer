@@ -7,27 +7,33 @@ if [[ "${EUID}" -ne 0 ]]; then
 fi
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+input_device="${OPSRABBIT_INPUT_DEVICE:-/dev/tty}"
+
+if ! { true <"${input_device}"; } 2>/dev/null; then
+  echo "An interactive terminal is required. Run the installer from an interactive SSH session." >&2
+  exit 1
+fi
 
 prompt() {
   local variable_name="$1" message="$2" default_value="${3:-}" value
   if [[ -n "${default_value}" ]]; then
-    read -r -p "${message} [${default_value}]: " value
+    read -r -p "${message} [${default_value}]: " value <"${input_device}"
     value="${value:-${default_value}}"
   else
-    while [[ -z "${value:-}" ]]; do read -r -p "${message}: " value; done
+    while [[ -z "${value:-}" ]]; do read -r -p "${message}: " value <"${input_device}"; done
   fi
   printf -v "${variable_name}" '%s' "${value}"
 }
 
 prompt_secret() {
   local variable_name="$1" message="$2" value
-  while [[ -z "${value:-}" ]]; do read -r -s -p "${message}: " value; echo; done
+  while [[ -z "${value:-}" ]]; do read -r -s -p "${message}: " value <"${input_device}"; echo; done
   printf -v "${variable_name}" '%s' "${value}"
 }
 
 yes_no() {
   local message="$1" default_value="$2" value
-  read -r -p "${message} [${default_value}]: " value
+  read -r -p "${message} [${default_value}]: " value <"${input_device}"
   value="${value:-${default_value}}"
   [[ "${value,,}" == "y" || "${value,,}" == "yes" ]]
 }
@@ -35,6 +41,7 @@ yes_no() {
 echo "OpsRabbit image-only AWS deployment installer"
 echo "This installs Docker/AWS CLI packages when missing and creates a Docker-enabled deployment user."
 echo
+echo "[Installer 1/4] Reviewing deployment settings..."
 
 deploy_user="${OPSRABBIT_INSTALL_USER:-opsrabbit}"
 deploy_dir="${OPSRABBIT_INSTALL_DIR:-/opt/opsrabbit}"
@@ -69,6 +76,7 @@ if ! command -v apt-get >/dev/null 2>&1; then
   exit 1
 fi
 
+echo "[Installer 2/4] Installing and verifying host prerequisites..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl openssl awscli
 if ! command -v docker >/dev/null 2>&1; then
@@ -82,6 +90,7 @@ fi
 systemctl enable --now docker
 docker compose version >/dev/null
 
+echo "[Installer 3/4] Creating the deployment user and persistent configuration..."
 if ! id "${deploy_user}" >/dev/null 2>&1; then
   useradd --create-home --shell /bin/bash "${deploy_user}"
 fi
@@ -121,6 +130,9 @@ run_as_deployer() {
   runuser -u "${deploy_user}" -- env HOME="$(getent passwd "${deploy_user}" | cut -d: -f6)" bash -lc "${command}"
 }
 
+echo "[Installer 4/4] Verifying AWS access, pulling images, and starting services..."
+export AWS_METADATA_SERVICE_TIMEOUT=2
+export AWS_METADATA_SERVICE_NUM_ATTEMPTS=1
 if run_as_deployer "aws sts get-caller-identity >/dev/null 2>&1"; then
   echo "Using the AWS identity already available to ${deploy_user} (for example, an EC2 instance role)."
 else
@@ -128,7 +140,7 @@ else
   echo "Enter a least-privilege ECR pull credential. It will be stored in ${deploy_user}'s ~/.aws with mode 0600."
   prompt aws_access_key_id "AWS access key ID"
   prompt_secret aws_secret_access_key "AWS secret access key"
-  read -r -s -p "AWS session token (optional; press Enter if unused): " aws_session_token
+  read -r -s -p "AWS session token (optional; press Enter if unused): " aws_session_token <"${input_device}"
   echo
 
   user_home="$(getent passwd "${deploy_user}" | cut -d: -f6)"
@@ -150,7 +162,7 @@ else
   fi
 fi
 
-echo "Authenticating to ECR and starting OpsRabbit..."
+echo "AWS access verified. Authenticating to ECR and starting OpsRabbit..."
 run_as_deployer "OPSRABBIT_DEPLOY_DIR='${deploy_dir}' /usr/local/bin/opsrabbitctl deploy"
 run_as_deployer "OPSRABBIT_DEPLOY_DIR='${deploy_dir}' /usr/local/bin/opsrabbitctl health"
 
