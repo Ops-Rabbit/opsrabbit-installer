@@ -14,7 +14,7 @@ Pin a specific installer release when repeatability matters:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Ops-Rabbit/opsrabbit-installer/main/install.sh \
-  | sudo OPSRABBIT_INSTALLER_VERSION=v1.0.0 bash
+  | sudo OPSRABBIT_INSTALLER_VERSION=v1.1.0 bash
 ```
 
 The bootstrap downloads the release archive and its published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
@@ -60,13 +60,14 @@ cd opsrabbit-aws-image-bundle
 sudo ./install.sh
 ```
 
-The installer asks for:
+For a normal EC2 installation with a working instance role, the installer asks only for:
 
-- deployment user and directory
-- AWS region and ECR registry
-- fully qualified backend and web image names, including tags
-- public URL and web port
-- AWS authentication method
+- the public OpsRabbit URL
+- confirmation before changing the host
+
+The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us-east-1`), ECR registry, image repositories, `latestv2` deployment tag, and web port (`3000`) use the OpsRabbit defaults. AWS access credentials are requested only if neither an EC2 instance role nor existing AWS CLI credentials are available to the deployment user.
+
+Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRABBIT_INSTALL_DIR`, `OPSRABBIT_AWS_REGION`, `OPSRABBIT_ECR_REGISTRY`, `OPSRABBIT_DAEMON_IMAGE`, `OPSRABBIT_WEB_IMAGE`, or `OPSRABBIT_WEB_PORT`.
 
 It then installs missing prerequisites, creates the deployment user, generates persistent application secrets, logs in to ECR, pulls the images, starts the services, and checks backend and web health.
 
@@ -74,11 +75,11 @@ Use immutable image tags or digests for production rather than `latest`.
 
 ## AWS authentication
 
-The recommended EC2 option is an instance profile with only the ECR pull permissions above. No long-lived AWS credential is then stored on the host.
+The installer automatically uses an EC2 instance profile or existing AWS CLI identity when one is available to the deployment user. An instance profile with only the ECR pull permissions above is recommended because no long-lived AWS credential is stored on the host.
 
 The stored-access-key option writes standard AWS CLI files beneath the deployment user's home with directory mode `0700` and file mode `0600`. Prefer an instance role when available.
 
-The preconfigured option expects `aws sts get-caller-identity` to work as the deployment user before installation continues.
+When no working identity is detected, the installer requests a least-privilege access key and validates it before pulling images.
 
 ## Operations
 

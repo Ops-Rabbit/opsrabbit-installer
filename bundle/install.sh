@@ -36,31 +36,21 @@ echo "OpsRabbit image-only AWS deployment installer"
 echo "This installs Docker/AWS CLI packages when missing and creates a Docker-enabled deployment user."
 echo
 
-prompt deploy_user "Deployment user" "opsrabbit"
-prompt deploy_dir "Deployment directory" "/opt/opsrabbit"
-prompt aws_region "AWS region" "us-east-1"
-prompt ecr_registry "ECR registry (account.dkr.ecr.region.amazonaws.com)"
-prompt daemon_image "Backend image repository:tag" "${ecr_registry}/vg-backend:latest"
-prompt web_image "Web image repository:tag" "${ecr_registry}/vg-web:latest"
-prompt public_origin "Public OpsRabbit origin, including scheme and optional port" "http://$(hostname -I | awk '{print $1}'):3000"
-prompt web_port "Public web port" "3000"
+deploy_user="${OPSRABBIT_INSTALL_USER:-opsrabbit}"
+deploy_dir="${OPSRABBIT_INSTALL_DIR:-/opt/opsrabbit}"
+aws_region="${OPSRABBIT_AWS_REGION:-us-east-1}"
+ecr_registry="${OPSRABBIT_ECR_REGISTRY:-921870554228.dkr.ecr.us-east-1.amazonaws.com}"
+daemon_image="${OPSRABBIT_DAEMON_IMAGE:-${ecr_registry}/vg-backend:latestv2}"
+web_image="${OPSRABBIT_WEB_IMAGE:-${ecr_registry}/vg-webapp:latestv2}"
+web_port="${OPSRABBIT_WEB_PORT:-3000}"
+env_path="${deploy_dir}/.env"
 
-echo
-echo "AWS authentication method:"
-echo "  1) EC2 instance role (recommended on EC2)"
-echo "  2) Store an access key for the deployment user"
-echo "  3) Use AWS CLI credentials already configured for the deployment user"
-prompt auth_method "Choose 1, 2, or 3" "1"
-
-if [[ "${auth_method}" == "2" ]]; then
-  echo "The access key will be stored in ${deploy_user}'s ~/.aws/credentials with mode 0600."
-  prompt aws_access_key_id "AWS access key ID"
-  prompt_secret aws_secret_access_key "AWS secret access key"
-  read -r -s -p "AWS session token (optional; press Enter if unused): " aws_session_token
-  echo
-elif [[ "${auth_method}" != "1" && "${auth_method}" != "3" ]]; then
-  echo "Invalid authentication method." >&2
-  exit 1
+if [[ -r "${env_path}" ]]; then
+  public_origin="$(sed -n 's/^OPSRABBIT_WEB_ORIGIN=//p' "${env_path}" | tail -n 1)"
+  public_origin="${public_origin:-http://$(hostname -I | awk '{print $1}'):${web_port}}"
+  echo "Existing configuration found at ${env_path}; its secrets and public URL will be preserved."
+else
+  prompt public_origin "Public OpsRabbit URL" "http://$(hostname -I | awk '{print $1}'):${web_port}"
 fi
 
 echo
@@ -100,22 +90,6 @@ install -d -m 0750 -o "${deploy_user}" -g "${deploy_user}" "${deploy_dir}"
 install -m 0640 -o "${deploy_user}" -g "${deploy_user}" "${script_dir}/docker-compose.yml" "${deploy_dir}/docker-compose.yml"
 install -m 0750 -o root -g docker "${script_dir}/opsrabbitctl" /usr/local/bin/opsrabbitctl
 
-if [[ "${auth_method}" == "2" ]]; then
-  user_home="$(getent passwd "${deploy_user}" | cut -d: -f6)"
-  aws_dir="${user_home}/.aws"
-  install -d -m 0700 -o "${deploy_user}" -g "${deploy_user}" "${aws_dir}"
-  {
-    echo "[default]"
-    echo "aws_access_key_id = ${aws_access_key_id}"
-    echo "aws_secret_access_key = ${aws_secret_access_key}"
-    if [[ -n "${aws_session_token:-}" ]]; then echo "aws_session_token = ${aws_session_token}"; fi
-  } > "${aws_dir}/credentials"
-  printf '[default]\nregion = %s\n' "${aws_region}" > "${aws_dir}/config"
-  chown "${deploy_user}:${deploy_user}" "${aws_dir}/credentials" "${aws_dir}/config"
-  chmod 0600 "${aws_dir}/credentials" "${aws_dir}/config"
-fi
-
-env_path="${deploy_dir}/.env"
 if [[ -e "${env_path}" ]]; then
   echo "Preserving existing ${env_path}; image and URL settings were not overwritten."
 else
@@ -147,9 +121,31 @@ run_as_deployer() {
   runuser -u "${deploy_user}" -- env HOME="$(getent passwd "${deploy_user}" | cut -d: -f6)" bash -lc "${command}"
 }
 
-if [[ "${auth_method}" == "3" ]]; then
+if run_as_deployer "aws sts get-caller-identity >/dev/null 2>&1"; then
+  echo "Using the AWS identity already available to ${deploy_user} (for example, an EC2 instance role)."
+else
+  echo "No EC2 instance role or existing AWS CLI credentials were detected for ${deploy_user}."
+  echo "Enter a least-privilege ECR pull credential. It will be stored in ${deploy_user}'s ~/.aws with mode 0600."
+  prompt aws_access_key_id "AWS access key ID"
+  prompt_secret aws_secret_access_key "AWS secret access key"
+  read -r -s -p "AWS session token (optional; press Enter if unused): " aws_session_token
+  echo
+
+  user_home="$(getent passwd "${deploy_user}" | cut -d: -f6)"
+  aws_dir="${user_home}/.aws"
+  install -d -m 0700 -o "${deploy_user}" -g "${deploy_user}" "${aws_dir}"
+  {
+    echo "[default]"
+    echo "aws_access_key_id = ${aws_access_key_id}"
+    echo "aws_secret_access_key = ${aws_secret_access_key}"
+    if [[ -n "${aws_session_token:-}" ]]; then echo "aws_session_token = ${aws_session_token}"; fi
+  } > "${aws_dir}/credentials"
+  printf '[default]\nregion = %s\n' "${aws_region}" > "${aws_dir}/config"
+  chown "${deploy_user}:${deploy_user}" "${aws_dir}/credentials" "${aws_dir}/config"
+  chmod 0600 "${aws_dir}/credentials" "${aws_dir}/config"
+
   if ! run_as_deployer "aws sts get-caller-identity >/dev/null"; then
-    echo "No working AWS credentials were found for ${deploy_user}. Configure them and run: opsrabbitctl deploy" >&2
+    echo "The supplied AWS credentials are not valid." >&2
     exit 1
   fi
 fi
@@ -162,4 +158,3 @@ echo
 echo "OpsRabbit is running at ${public_origin}"
 echo "Routine commands: opsrabbitctl status | logs | health | update"
 echo "The ${deploy_user} user belongs to the docker group, which is effectively root-equivalent."
-
