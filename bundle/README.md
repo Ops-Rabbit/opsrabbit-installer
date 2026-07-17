@@ -80,6 +80,8 @@ opsrabbitctl start
 
 `opsrabbitctl update` logs in to ECR, pulls the configured image tags, recreates changed containers, waits for health checks, and prints status.
 
+ECR login uses a temporary Docker configuration directory. The short-lived ECR authorization token is removed after the command instead of being retained unencrypted in the deployment user's normal Docker configuration.
+
 Configuration is stored at `/opt/opsrabbit/.env` by default. Back it up securely. Never regenerate `OPSRABBIT_NODE_ENCRYPTION_KEY`; doing so makes previously stored encrypted credentials unreadable.
 
 Persistent data is held in Docker named volumes. Back up PostgreSQL and the OpsRabbit data volume before upgrades.

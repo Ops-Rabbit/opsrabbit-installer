@@ -13,7 +13,9 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Validate shell scripts
-        run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl
+        run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl tests/opsrabbitctl.test.sh
+      - name: Test operations helper
+        run: bash tests/opsrabbitctl.test.sh
       - name: Build release archive
         run: |
           mkdir -p release/assets release/opsrabbit-aws-image-bundle

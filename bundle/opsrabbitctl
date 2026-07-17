@@ -10,6 +10,11 @@ if [[ ! -r "${env_file}" || ! -r "${compose_file}" ]]; then
   exit 1
 fi
 
+# Compose resolves relative paths and validates the working directory even when
+# the Compose file itself is absolute. Never inherit an inaccessible directory
+# such as /root when this helper is invoked through the root installer.
+cd "${deploy_dir}"
+
 read_env() {
   local key="$1" value
   value="$(sed -n "s/^${key}=//p" "${env_file}" | tail -n 1)"
@@ -26,10 +31,31 @@ backend_port="$(read_env OPSRABBIT_BACKEND_PORT)"
 web_port="$(read_env WEB_HTTP_PORT)"
 
 compose=(docker compose --env-file "${env_file}" -f "${compose_file}")
+docker_config_dir=""
+
+cleanup() {
+  if [[ -n "${docker_config_dir}" && -d "${docker_config_dir}" ]]; then
+    rm -rf "${docker_config_dir}"
+  fi
+}
+trap cleanup EXIT
 
 ecr_login() {
-  aws ecr get-login-password --region "${aws_region}" \
-    | docker login --username AWS --password-stdin "${ecr_registry}"
+  local login_output
+
+  docker_config_dir="$(mktemp -d)"
+  chmod 0700 "${docker_config_dir}"
+  export DOCKER_CONFIG="${docker_config_dir}"
+
+  if ! login_output="$(
+    aws ecr get-login-password --region "${aws_region}" \
+      | docker login --username AWS --password-stdin "${ecr_registry}" 2>&1
+  )"; then
+    echo "${login_output}" >&2
+    return 1
+  fi
+
+  echo "ECR login succeeded using a temporary Docker credential file."
 }
 
 case "${1:-}" in
@@ -68,4 +94,3 @@ case "${1:-}" in
     exit 2
     ;;
 esac
-
