@@ -1,0 +1,79 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    ports:
+      - "127.0.0.1:${OPSRABBIT_POSTGRES_PORT:-54329}:5432"
+    environment:
+      POSTGRES_DB: ${OPSRABBIT_POSTGRES_DB:-opsrabbit_neo}
+      POSTGRES_USER: ${OPSRABBIT_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${OPSRABBIT_POSTGRES_PASSWORD:?Required}
+    volumes:
+      - opsrabbit-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${OPSRABBIT_POSTGRES_USER:-postgres} -d ${OPSRABBIT_POSTGRES_DB:-opsrabbit_neo}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  daemon:
+    image: ${OPSRABBIT_DAEMON_IMAGE:?Required}
+    stop_grace_period: 135s
+    group_add:
+      - ${OPSRABBIT_DOCKER_SOCKET_GID:?Required}
+    ports:
+      - "127.0.0.1:${OPSRABBIT_BACKEND_PORT:-8384}:8384"
+    volumes:
+      - opsrabbit-data:/home/opsbot/.opsrabbit
+      - opsrabbit-agent-browser:/home/opsbot/.agent-browser
+      - opsrabbit-codex:/home/opsbot/.codex
+      - opsrabbit-git:/home/opsbot/git
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      OPSRABBIT_NODE_HOST: 0.0.0.0
+      OPSRABBIT_NODE_PORT: 8384
+      OPSRABBIT_NODE_DATA_DIR: /home/opsbot/.opsrabbit
+      OPSRABBIT_NODE_WORKSPACE_DIR: /home/opsbot/git
+      OPSRABBIT_NODE_DATABASE_URL: postgresql://${OPSRABBIT_POSTGRES_USER:-postgres}:${OPSRABBIT_POSTGRES_PASSWORD:?Required}@postgres:5432/${OPSRABBIT_POSTGRES_DB:-opsrabbit_neo}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Required}
+      OPSRABBIT_NODE_ENCRYPTION_KEY: ${OPSRABBIT_NODE_ENCRYPTION_KEY:?Required}
+      OPSRABBIT_WEB_ORIGIN: ${OPSRABBIT_WEB_ORIGIN:?Required}
+      OPSRABBIT_NODE_BASE_URL: ${OPSRABBIT_NODE_BASE_URL:?Required}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8384/health').then((res) => { if (!res.ok) process.exit(1); }).catch(() => process.exit(1));"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: unless-stopped
+
+  web:
+    image: ${OPSRABBIT_WEB_IMAGE:?Required}
+    ports:
+      - "${WEB_BIND_ADDRESS:-0.0.0.0}:${WEB_HTTP_PORT:-3000}:80"
+    environment:
+      VITE_API_URL: /api
+      WEB_API_UPSTREAM: http://daemon:8384
+      WEB_TLS_MODE: http
+    depends_on:
+      daemon:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider --quiet http://127.0.0.1/"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  opsrabbit-pgdata:
+  opsrabbit-data:
+  opsrabbit-agent-browser:
+  opsrabbit-codex:
+  opsrabbit-git:
+

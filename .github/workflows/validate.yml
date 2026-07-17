@@ -1,0 +1,32 @@
+name: Validate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Validate shell scripts
+        run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl
+      - name: Validate Compose manifest
+        env:
+          OPSRABBIT_DAEMON_IMAGE: example.invalid/opsrabbit-daemon:test
+          OPSRABBIT_WEB_IMAGE: example.invalid/opsrabbit-web:test
+          OPSRABBIT_POSTGRES_PASSWORD: test
+          BETTER_AUTH_SECRET: test
+          OPSRABBIT_NODE_ENCRYPTION_KEY: test
+          OPSRABBIT_DOCKER_SOCKET_GID: "0"
+          OPSRABBIT_WEB_ORIGIN: https://opsrabbit.example.com
+          OPSRABBIT_NODE_BASE_URL: https://opsrabbit.example.com/api
+        run: docker compose -f bundle/docker-compose.yml config --quiet
+      - name: Build and inspect archive
+        run: |
+          tar -C bundle -czf opsrabbit-aws-image-bundle.tar.gz .
+          tar -tzf opsrabbit-aws-image-bundle.tar.gz

@@ -1,0 +1,31 @@
+name: Release installer
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - name: Validate shell scripts
+        run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl
+      - name: Build release archive
+        run: |
+          mkdir -p release/opsrabbit-aws-image-bundle
+          cp bundle/install.sh bundle/opsrabbitctl bundle/docker-compose.yml bundle/README.md release/opsrabbit-aws-image-bundle/
+          tar -C release -czf opsrabbit-aws-image-bundle.tar.gz opsrabbit-aws-image-bundle
+          sha256sum opsrabbit-aws-image-bundle.tar.gz > opsrabbit-aws-image-bundle.tar.gz.sha256
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            opsrabbit-aws-image-bundle.tar.gz \
+            opsrabbit-aws-image-bundle.tar.gz.sha256 \
+            --generate-notes \
+            --title "OpsRabbit installer ${GITHUB_REF_NAME}"

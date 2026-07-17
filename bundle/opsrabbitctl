@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+deploy_dir="${OPSRABBIT_DEPLOY_DIR:-/opt/opsrabbit}"
+env_file="${deploy_dir}/.env"
+compose_file="${deploy_dir}/docker-compose.yml"
+
+if [[ ! -r "${env_file}" || ! -r "${compose_file}" ]]; then
+  echo "OpsRabbit is not configured in ${deploy_dir}." >&2
+  exit 1
+fi
+
+read_env() {
+  local key="$1" value
+  value="$(sed -n "s/^${key}=//p" "${env_file}" | tail -n 1)"
+  if [[ -z "${value}" ]]; then
+    echo "Missing ${key} in ${env_file}." >&2
+    exit 1
+  fi
+  printf '%s' "${value}"
+}
+
+aws_region="$(read_env AWS_REGION)"
+ecr_registry="$(read_env ECR_REGISTRY)"
+backend_port="$(read_env OPSRABBIT_BACKEND_PORT)"
+web_port="$(read_env WEB_HTTP_PORT)"
+
+compose=(docker compose --env-file "${env_file}" -f "${compose_file}")
+
+ecr_login() {
+  aws ecr get-login-password --region "${aws_region}" \
+    | docker login --username AWS --password-stdin "${ecr_registry}"
+}
+
+case "${1:-}" in
+  login)
+    ecr_login
+    ;;
+  deploy|update)
+    ecr_login
+    "${compose[@]}" pull
+    "${compose[@]}" up -d --no-build --remove-orphans --wait
+    "${compose[@]}" ps
+    ;;
+  start)
+    "${compose[@]}" up -d --no-build --wait
+    ;;
+  stop)
+    "${compose[@]}" stop
+    ;;
+  restart)
+    "${compose[@]}" restart
+    ;;
+  status)
+    "${compose[@]}" ps
+    ;;
+  logs)
+    "${compose[@]}" logs --tail=200 -f "${@:2}"
+    ;;
+  health)
+    curl --fail --show-error --silent "http://127.0.0.1:${backend_port}/health"
+    echo
+    curl --fail --show-error --silent --output /dev/null "http://127.0.0.1:${web_port}/"
+    echo "Web health check passed."
+    ;;
+  *)
+    echo "Usage: opsrabbitctl {login|deploy|update|start|stop|restart|status|logs [service]|health}" >&2
+    exit 2
+    ;;
+esac
+
