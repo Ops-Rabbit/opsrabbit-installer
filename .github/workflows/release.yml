@@ -16,8 +16,11 @@ jobs:
         run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl
       - name: Build release archive
         run: |
-          mkdir -p release/opsrabbit-aws-image-bundle
+          mkdir -p release/assets release/opsrabbit-aws-image-bundle
           cp bundle/install.sh bundle/opsrabbitctl bundle/docker-compose.yml bundle/README.md release/opsrabbit-aws-image-bundle/
+          cp install.sh release/assets/install.sh
+          sed -i "s/^default_version=.*/default_version=\"${GITHUB_REF_NAME}\"/" release/assets/install.sh
+          grep -F "default_version=\"${GITHUB_REF_NAME}\"" release/assets/install.sh
           tar -C release -czf opsrabbit-aws-image-bundle.tar.gz opsrabbit-aws-image-bundle
           sha256sum opsrabbit-aws-image-bundle.tar.gz > opsrabbit-aws-image-bundle.tar.gz.sha256
       - name: Publish GitHub release
@@ -25,6 +28,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "${GITHUB_REF_NAME}" \
+            release/assets/install.sh \
             opsrabbit-aws-image-bundle.tar.gz \
             opsrabbit-aws-image-bundle.tar.gz.sha256 \
             --generate-notes \

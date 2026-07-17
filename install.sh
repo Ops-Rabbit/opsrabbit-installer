@@ -2,12 +2,13 @@
 set -euo pipefail
 
 repository="Ops-Rabbit/opsrabbit-installer"
-version="${OPSRABBIT_INSTALLER_VERSION:-latest}"
+default_version="latest"
+version="${OPSRABBIT_INSTALLER_VERSION:-${default_version}}"
 archive="opsrabbit-aws-image-bundle.tar.gz"
 checksum="${archive}.sha256"
 
 if [[ "${EUID}" -ne 0 ]]; then
-  echo "Run as root, for example: curl -fsSL https://raw.githubusercontent.com/${repository}/main/install.sh | sudo bash" >&2
+  echo "Run as root, for example: curl -fsSL https://github.com/${repository}/releases/latest/download/install.sh | sudo bash" >&2
   exit 1
 fi
 

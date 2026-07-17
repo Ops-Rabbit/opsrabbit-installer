@@ -4,20 +4,15 @@ This bundle deploys the core OpsRabbit stack without copying application source 
 
 ## Quick install
 
-Run the latest published installer on a Debian or Ubuntu host:
+Install the tagged `v1.2.0` release on a Debian or Ubuntu host:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Ops-Rabbit/opsrabbit-installer/main/install.sh | sudo bash
+curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.2.0/install.sh | sudo bash
 ```
 
-Pin a specific installer release when repeatability matters:
+This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.2.0` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/Ops-Rabbit/opsrabbit-installer/main/install.sh \
-  | sudo OPSRABBIT_INSTALLER_VERSION=v1.1.0 bash
-```
-
-The bootstrap downloads the release archive and its published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
+To install another version, replace `v1.2.0` in the URL with the required release tag.
 
 ## Requirements
 
