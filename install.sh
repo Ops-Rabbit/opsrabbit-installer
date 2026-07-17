@@ -22,10 +22,16 @@ temporary_dir="$(mktemp -d)"
 cleanup() { rm -rf "${temporary_dir}"; }
 trap cleanup EXIT
 
-echo "Downloading OpsRabbit installer ${version}..."
+if ! { true </dev/tty; } 2>/dev/null; then
+  echo "An interactive terminal is required. Run this command from an interactive SSH session." >&2
+  exit 1
+fi
+
+echo "[Bootstrap 1/3] Downloading OpsRabbit installer ${version}..."
 curl --fail --silent --show-error --location "${release_url}/${archive}" -o "${temporary_dir}/${archive}"
 curl --fail --silent --show-error --location "${release_url}/${checksum}" -o "${temporary_dir}/${checksum}"
 
+echo "[Bootstrap 2/3] Verifying and extracting the release archive..."
 (
   cd "${temporary_dir}"
   sha256sum --check "${checksum}"
@@ -38,6 +44,5 @@ if [[ ! -x "${installer}" ]]; then
   exit 1
 fi
 
-echo "Archive verified. Starting the interactive installer..."
-exec </dev/tty
+echo "[Bootstrap 3/3] Archive verified. Launching the interactive installer..."
 "${installer}"
