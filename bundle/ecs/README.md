@@ -28,6 +28,8 @@ The existing Compose installer and assets remain unchanged.
      - `AllowedEgressCidr` (default `0.0.0.0/0`)
      - `DatabaseSecurityGroupId` (optional DB SG for egress on 5432)
 
+   - At least one of `DatabaseSecurityGroupId` or `DatabaseCidr` must be provided. The CloudFormation template validates this and fails before creating resources.
+
 2. Create required AWS resources:
 
    - ECS Cluster

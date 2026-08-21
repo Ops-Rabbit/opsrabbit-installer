@@ -1,6 +1,22 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: "OpsRabbit ECS Fargate reference stack (starter). Uses image-only container paths."
 
+Rules:
+  DatabaseEgressRequired:
+    Description: "Either DatabaseSecurityGroupId or DatabaseCidr must be set when deploying with a database in another security domain."
+    Assertions:
+      - Assert:
+          Fn::Or:
+            - Fn::Not:
+                - Fn::Equals:
+                    - Ref: DatabaseSecurityGroupId
+                    - ""
+            - Fn::Not:
+                - Fn::Equals:
+                    - Ref: DatabaseCidr
+                    - ""
+        AssertDescription: "Set DatabaseSecurityGroupId or DatabaseCidr before launching the stack."
+
 Parameters:
   StackName:
     Type: String
