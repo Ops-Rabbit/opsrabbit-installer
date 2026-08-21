@@ -10,7 +10,7 @@ In addition to the default Compose path, this bundle now includes:
 - `ecs/opsrabbit-ecs.template.env`
 - `ecs/README.md`
 
-These files provide an ECS/Fargate CloudFormation deployment using an existing RDS for PostgreSQL database, Secrets Manager, HTTPS, and encrypted EFS persistence. They are packaged as a separate AWS Marketplace deployment option. The default behavior and files (`install.sh`, `docker-compose.yml`, `opsrabbitctl`) are unchanged.
+These files provide a Docker-free ECS/Fargate deployment using the product's `local-process` worker profile, an existing RDS for PostgreSQL database, Secrets Manager, HTTPS, encrypted EFS persistence, and the OpsRabbit offline license. They are packaged as a separate AWS Marketplace deployment option. The default behavior and files (`install.sh`, `docker-compose.yml`, `opsrabbitctl`) are unchanged.
 
 ## Requirements
 

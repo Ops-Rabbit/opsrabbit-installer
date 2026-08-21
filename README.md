@@ -73,7 +73,7 @@ The release archive also includes `bundle-ecs/` with an ECS Fargate CloudFormati
 - `bundle-ecs/opsrabbit-ecs-fargate.yaml` (CloudFormation)
 - `bundle-ecs/opsrabbit-ecs.template.env`
 
-The ECS stack provisions the cluster, service, load balancer, IAM roles, logging, security groups, and encrypted EFS persistence. It accepts immutable AWS Marketplace image URIs and retrieves application secrets from Secrets Manager. The Compose install flow remains unchanged and is still the default path for this installer.
+The ECS stack provisions the cluster, service, load balancer, IAM roles, logging, security groups, and encrypted EFS persistence. It accepts immutable AWS Marketplace image URIs, retrieves application secrets from Secrets Manager, persists the OpsRabbit offline license, and uses the Docker-free `local-process` worker profile. The Compose install flow remains unchanged and is still the default path for this installer.
 
 See `bundle-ecs/README.md` for deployment steps and implementation notes.
 

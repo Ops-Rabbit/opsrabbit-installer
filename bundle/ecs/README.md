@@ -27,7 +27,20 @@ The customer supplies:
 
 The EFS file system has `DeletionPolicy: Retain` and remains after stack deletion. RDS is external to the stack and is never deleted by it. CloudWatch log groups and other stack-created resources follow normal CloudFormation deletion behavior.
 
-## Product release gates
+## ECS-safe runtime profile
+
+This delivery option is intentionally Docker-free:
+
+- The daemon has no Docker socket, Docker daemon, or privileged container access.
+- Trusted packaged OpsRabbit plugins continue to use the normal in-process plugin runtime.
+- Turn workers use the product's `local-process` runner provider, which is the default for a new installation.
+- The Docker worker provider and actions that manage Docker or Compose workloads are not supported in this delivery option.
+- Long-running companion services must be declared as fixed CloudFormation-managed ECS services rather than launched dynamically by the application.
+- Customer-uploaded or untrusted plugin isolation is not part of this ECS delivery option.
+
+Do not change the worker runner provider to `docker` on ECS. A deployment migrated from an existing database must be switched to `local-process` before the ECS service is started. This profile does not require Docker permissions in either ECS IAM role.
+
+## Product release checks
 
 Complete these checks before submitting this delivery option to AWS Marketplace:
 
@@ -37,18 +50,23 @@ Complete these checks before submitting this delivery option to AWS Marketplace:
 - Confirm the image user has UID and GID `1000`, which the EFS access points enforce. Change the access-point identity only if the published image uses a different non-root identity.
 - Validate database migrations and application startup against the supported RDS PostgreSQL version, with `pgvector` enabled when required by the product version.
 - Validate multi-task behavior before increasing `DesiredCount` above 1.
+- Verify a fresh production installation reports `local-process` as its worker runner provider.
 
-Fargate does not provide a Docker socket. Any OpsRabbit feature that creates or controls sibling Docker containers must be disabled or implemented through an ECS-compatible product runtime before this delivery option is represented as supporting that feature. EFS preserves application state, browser state, Codex state, and Git workspaces, but it does not provide Docker daemon functionality.
+## OpsRabbit offline license
 
-## Pricing and licensing gate
+OpsRabbit uses its own offline signed license file. It does not call AWS License Manager or AWS Marketplace Metering Service from this ECS deployment, and the task role intentionally has no permissions for those services.
 
-The required product integration depends on the Marketplace pricing model:
+After the first successful deployment:
 
-- Free or BYOL: no AWS License Manager integration is required.
-- Contract pricing: the OpsRabbit application must implement AWS License Manager entitlement checks, and the task role must receive the exact License Manager permissions required by that implementation.
-- Usage pricing: the application must implement the applicable AWS Marketplace Metering Service calls, and the task role must receive the exact metering permissions.
+1. Sign in as a deployment administrator.
+2. Open the OpsRabbit Status page and obtain the generated deployment ID.
+3. Have an OpsRabbit license issued for that deployment ID.
+4. Apply the signed `.license` file from the Status page.
+5. Confirm the Status page reports the expected entitlements and validity period.
 
-This repository contains deployment assets only; it does not implement application entitlement or metering calls. Do not submit a paid delivery option until the corresponding application integration has been implemented and tested with the Marketplace product code. Do not put AWS credentials in the images or secret. ECS supplies temporary credentials through the task role.
+The backend stores the signed license at `/home/opsbot/.opsrabbit/license/opsrabbit.license` and the stable deployment identity at `/home/opsbot/.opsrabbit/license/deployment.json`. The encrypted EFS `opsrabbit-data` access point persists both files across ECS task replacements and stack updates. Keep the private signing key outside customer deployments and container images.
+
+Missing, invalid, not-yet-valid, or expired licenses leave the base administrative recovery surfaces available while licensed OpsRabbit capabilities remain disabled according to the product's fail-closed entitlement policy.
 
 ## Prerequisites
 
@@ -128,7 +146,7 @@ The daemon port is never exposed through the ALB. The database is not exposed pu
 ## IAM role purpose
 
 - Task execution role: used by ECS before container startup to pull Marketplace ECR images, create log streams, publish container logs, and read `ApplicationSecretArn`.
-- Task role: used by the running application. It starts without AWS API permissions. Add narrowly scoped permissions only for customer-enabled integrations and the selected Marketplace licensing model.
+- Task role: used by the running application. It starts without AWS API permissions. Add narrowly scoped permissions only for customer-enabled integrations. OpsRabbit offline-license validation requires no AWS IAM permission.
 
 The template never requests access keys. Containers obtain temporary credentials from ECS task-role metadata.
 
@@ -138,6 +156,7 @@ The template never requests access keys. Containers obtain temporary credentials
 - Application-to-RDS TLS is controlled by `databaseUrl`; use `sslmode=require` or the stronger verification mode supported by your certificate setup.
 - EFS data is encrypted at rest and in transit, and automatic EFS backups are enabled.
 - Secrets are retrieved from Secrets Manager and are not stored as plaintext CloudFormation parameters or ECS environment values.
+- The signed OpsRabbit license and deployment identity are persisted under the encrypted EFS-backed application data directory.
 - CloudWatch logs are retained for `LogRetentionDays`; avoid logging prompts, credentials, or secret values.
 - The encrypted EFS file system is retained when the stack is deleted. Delete it and its backups separately only after preserving required customer data.
 - RDS retention, backups, snapshots, and deletion remain under the customer's existing database policy.
@@ -170,5 +189,6 @@ Check quotas for Fargate tasks, ENIs and IP addresses, ALBs, target groups, secu
 - RDS connection failure: verify the URL, TLS parameters, database availability, RDS security group, route tables, and network ACLs.
 - ALB target unhealthy: inspect both CloudWatch log groups and ECS container health. The web container waits for the daemon health check.
 - Browser certificate error: verify DNS points to the output ALB and the ACM certificate covers `PublicDomainName`.
+- Docker worker error: verify the system worker runner provider is `local-process`; Docker is intentionally unavailable in the ECS-safe profile.
 
 Before publishing a version, run `cfn-lint bundle/ecs/opsrabbit-ecs-fargate.yaml` and deploy it in an allow-listed test buyer account using the exact Marketplace images and pricing integration intended for release.
