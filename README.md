@@ -68,12 +68,12 @@ It then installs missing prerequisites, installs the official architecture-speci
 
 ## ECS-based deployment option
 
-The release archive also includes `bundle-ecs/` with a starter ECS Fargate template and environment example:
+The release archive also includes `bundle-ecs/` with an ECS Fargate CloudFormation deployment for an existing RDS for PostgreSQL database:
 
 - `bundle-ecs/opsrabbit-ecs-fargate.yaml` (CloudFormation)
 - `bundle-ecs/opsrabbit-ecs.template.env`
 
-These artifacts are provided so AWS Marketplace can expose both deployment paths (Compose and ECS). Compose install flow remains unchanged and is still the default path for this installer.
+The ECS stack provisions the cluster, service, load balancer, IAM roles, logging, security groups, and encrypted EFS persistence. It accepts immutable AWS Marketplace image URIs and retrieves application secrets from Secrets Manager. The Compose install flow remains unchanged and is still the default path for this installer.
 
 See `bundle-ecs/README.md` for deployment steps and implementation notes.
 

@@ -1,92 +1,174 @@
-# Amazon ECS deployment for existing OpsRabbit images
+# OpsRabbit on Amazon ECS Fargate
 
-This directory contains starter assets for an **ECS/Fargate** deployment path.  
-They are designed to be used with the same Marketplace-hosted container images
-you already use for the Compose flow.
+This directory provides the CloudFormation deployment resource for the OpsRabbit AWS Marketplace container delivery option. It runs the Marketplace-hosted daemon and web images in one Fargate task and uses an existing Amazon RDS for PostgreSQL database.
 
-What’s included:
+The Docker Compose installer remains a separate deployment option and is not changed by this stack.
 
-- `opsrabbit-ecs-fargate.yaml` — ECS-focused CloudFormation template
-- `opsrabbit-ecs.template.env` — environment placeholder values for the ECS launch
+## Architecture
 
-The existing Compose installer and assets remain unchanged.
+The stack creates:
 
-## Quick start
+- An ECS cluster, Fargate service, and task definition
+- An internet-facing Application Load Balancer with HTTPS only
+- An ECS task execution role for Marketplace ECR pulls, CloudWatch Logs, and one Secrets Manager secret
+- An empty task role to which customers can add permissions required by enabled integrations
+- CloudWatch log groups with configurable retention and ECS Container Insights
+- An encrypted EFS file system with automatic backups and access points for all persistent daemon paths
+- Security groups restricted to ALB-to-service, service-to-RDS, service-to-EFS, and configurable HTTPS egress
 
-1. Build an `.env` file from the template and set:
-   - `OPSRABBIT_DAEMON_IMAGE`
-   - `OPSRABBIT_WEB_IMAGE`
-   - `OPSRABBIT_NODE_DATABASE_URL`
-   - `BETTER_AUTH_SECRET`
-   - `OPSRABBIT_NODE_ENCRYPTION_KEY`
-   - `OPSRABBIT_WEB_ORIGIN`
-   - `OPSRABBIT_NODE_BASE_URL`
-   - Optional production hardening params:
-     - `UseHttps` (`true|false`)
-     - `CertificateArn` (required when `UseHttps=true`)
-     - `DatabaseCidr` (alternate to DatabaseSecurityGroupId for DB egress rule)
-     - `AllowedEgressCidr` (default `0.0.0.0/0`)
-     - `DatabaseSecurityGroupId` (optional DB SG for egress on 5432)
+The customer supplies:
 
-   - At least one of `DatabaseSecurityGroupId` or `DatabaseCidr` must be provided. The CloudFormation template validates this and fails before creating resources.
+- A VPC with two public and exactly two private subnets in different Availability Zones
+- Private-subnet access to ECR, S3, CloudWatch Logs, Secrets Manager, and required external services through a NAT gateway or VPC endpoints
+- An existing RDS for PostgreSQL database and its security group
+- An issued ACM certificate and public DNS name
+- A Secrets Manager secret containing the application configuration
+- The two immutable image URIs shown after subscribing to the AWS Marketplace product
 
-2. Create required AWS resources:
+The EFS file system has `DeletionPolicy: Retain` and remains after stack deletion. RDS is external to the stack and is never deleted by it. CloudWatch log groups and other stack-created resources follow normal CloudFormation deletion behavior.
 
-   - ECS Cluster
-   - VPC and subnets (public + private)
-   - Security groups
-   - ALB (public)
-   - Postgres-compatible database endpoint reachable from ECS tasks
+## Product release gates
 
-3. Deploy:
+Complete these checks before submitting this delivery option to AWS Marketplace:
 
-   ```bash
-   # Use this simple command only for non-sensitive test environments.
-   aws cloudformation deploy \
-     --template-file bundle/ecs/opsrabbit-ecs-fargate.yaml \
-     --stack-name opsrabbit-ecs \
-     --capabilities CAPABILITY_NAMED_IAM \
-     --parameter-overrides $(cat bundle/ecs/opsrabbit-ecs.template.env | xargs)
-   ```
+- Push the daemon and web images, including every required image dependency, to repositories created for this product in the AWS Marketplace console.
+- Use release-specific immutable tags or digests. Do not publish seller-account ECR, Docker Hub, or other external image references in the delivery instructions.
+- Confirm both images run as a non-root user and contain no known vulnerabilities, malware, hardcoded secrets, unsupported architectures, or end-of-life operating-system packages.
+- Confirm the image user has UID and GID `1000`, which the EFS access points enforce. Change the access-point identity only if the published image uses a different non-root identity.
+- Validate database migrations and application startup against the supported RDS PostgreSQL version, with `pgvector` enabled when required by the product version.
+- Validate multi-task behavior before increasing `DesiredCount` above 1.
 
-   For production, avoid passing secrets in command arguments. Instead copy and edit the JSON example and pass it via `--parameters`:
+Fargate does not provide a Docker socket. Any OpsRabbit feature that creates or controls sibling Docker containers must be disabled or implemented through an ECS-compatible product runtime before this delivery option is represented as supporting that feature. EFS preserves application state, browser state, Codex state, and Git workspaces, but it does not provide Docker daemon functionality.
 
-   ```bash
-   cp bundle/ecs/opsrabbit-ecs.parameters.example.json bundle/ecs/opsrabbit-ecs.parameters.json
+## Pricing and licensing gate
 
-   aws cloudformation create-stack \
-     --stack-name opsrabbit-ecs \
-     --template-body file://bundle/ecs/opsrabbit-ecs-fargate.yaml \
-     --capabilities CAPABILITY_NAMED_IAM \
-     --parameters file://bundle/ecs/opsrabbit-ecs.parameters.json
-   ```
+The required product integration depends on the Marketplace pricing model:
 
-   To expose HTTPS:
+- Free or BYOL: no AWS License Manager integration is required.
+- Contract pricing: the OpsRabbit application must implement AWS License Manager entitlement checks, and the task role must receive the exact License Manager permissions required by that implementation.
+- Usage pricing: the application must implement the applicable AWS Marketplace Metering Service calls, and the task role must receive the exact metering permissions.
 
-   - Set `UseHttps=true`
-   - In ACM (same AWS region as the stack), request or import a public cert for your public domain:
-     ```bash
-     aws acm request-certificate \
-       --domain-name opsrabbit.example.com \
-       --validation-method DNS \
-       --region <stack-region> \
-       --idempotency-token opsrabbit-ecs
-     ```
-   - Add the ACM DNS validation records to your hosted zone (or use the Route 53 validation workflow in console), then wait for status `ISSUED`.
-   - Set `CertificateArn` to that certificate ARN.
-   - Ensure `OPSRABBIT_WEB_ORIGIN` and `OPSRABBIT_NODE_BASE_URL` use `https://...`
-   - For production, keep `UseHttps=true` and keep ALB-only ingress on 443/80 as needed.
-   - `opsrabbit-ecs-fargate.yaml` does not create or validate certificates.
-     `CertificateArn` must be supplied by your pre-provisioning pipeline.
+This repository contains deployment assets only; it does not implement application entitlement or metering calls. Do not submit a paid delivery option until the corresponding application integration has been implemented and tested with the Marketplace product code. Do not put AWS credentials in the images or secret. ECS supplies temporary credentials through the task role.
 
-4. Open the ALB DNS name from stack outputs and set `OPSRABBIT_WEB_ORIGIN` to that URL.
+## Prerequisites
 
-## Important notes
+1. Subscribe to the product and record the daemon and web image URIs from the AWS Marketplace fulfillment page.
+2. Create or select a VPC with two public subnets and exactly two private subnets across two Availability Zones.
+3. Give the private subnets outbound connectivity using a NAT gateway, or create the required VPC endpoints. ECR image pulls normally require ECR API, ECR DKR, and an S3 gateway endpoint; this stack also needs CloudWatch Logs and Secrets Manager access.
+4. Create an RDS for PostgreSQL database in the VPC. Enable storage encryption, automated backups, deletion protection as appropriate, and PostgreSQL TLS. Attach a dedicated security group. The stack adds inbound port 5432 from the ECS task security group.
+5. Request or import an ACM certificate in the deployment region for the public DNS name and wait until its status is `ISSUED`.
+6. Create the application secret described below.
 
-- This is a reference template. You should wire Secrets Manager or SSM for secrets in production.
-- Data-only volumes for `/home/opsbot/.opsrabbit` and `/home/opsbot/.agent-browser` are currently
-  ephemeral in this starter. For durability, add EFS and mount points in your own fork.
-- In this version, outbound HTTPS egress is limited via `AllowedEgressCidr` (default `0.0.0.0/0`) and DB egress can be narrowed by
-  setting either `DatabaseSecurityGroupId` (preferred) or `DatabaseCidr`.
-- Post-deploy validation is the same: backend at `/health`, web at `/`.
-- Compose install script, `install.sh`, and existing `.env` conventions are untouched.
+The identity deploying the stack needs CloudFormation permissions plus permission to create and manage ECS, Elastic Load Balancing, EC2 security-group rules, EFS, CloudWatch Logs, and IAM roles. Because the template creates IAM roles, deployment requires `CAPABILITY_IAM`.
+
+## Create the application secret
+
+Create three cryptographically random values. Preserve `encryptionKey` across upgrades and disaster recovery; changing it makes previously encrypted application credentials unreadable.
+
+The `databaseUrl` should use the RDS endpoint, require TLS, and percent-encode reserved characters in the username or password. For example:
+
+```text
+postgresql://opsrabbit:ENCODED_PASSWORD@database.example.region.rds.amazonaws.com:5432/opsrabbit?sslmode=require
+```
+
+Create the JSON secret without placing values in shell history:
+
+```bash
+aws secretsmanager create-secret \
+  --name opsrabbit/application \
+  --secret-string file://opsrabbit-application-secret.json
+```
+
+The local JSON file must have exactly these keys:
+
+```json
+{
+  "databaseUrl": "postgresql://...",
+  "betterAuthSecret": "generated-random-value",
+  "encryptionKey": "generated-random-value"
+}
+```
+
+Delete the local secret file securely after creation according to your organization's secret-handling policy. If the secret uses a customer-managed KMS key, grant the generated ECS task execution role `kms:Decrypt` on that key before starting the service.
+
+## Deploy
+
+Copy the parameter example to an untracked file and replace every placeholder:
+
+```bash
+cp bundle/ecs/opsrabbit-ecs.parameters.example.json bundle/ecs/opsrabbit-ecs.parameters.json
+
+aws cloudformation create-stack \
+  --stack-name opsrabbit \
+  --template-body file://bundle/ecs/opsrabbit-ecs-fargate.yaml \
+  --capabilities CAPABILITY_IAM \
+  --parameters file://bundle/ecs/opsrabbit-ecs.parameters.json
+```
+
+Wait for stack creation:
+
+```bash
+aws cloudformation wait stack-create-complete --stack-name opsrabbit
+aws cloudformation describe-stacks --stack-name opsrabbit --query 'Stacks[0].Outputs'
+```
+
+Create a Route 53 alias, or an equivalent DNS CNAME where supported, from `PublicDomainName` to the `WebLoadBalancerDnsName` output. Then open the `WebUrl` output. The certificate must cover the public name; do not browse directly to the ALB hostname and expect certificate validation to succeed.
+
+## Network flow
+
+- Client to ALB: HTTPS 443 from `AllowedIngressCidr`
+- ALB to web container: HTTP 80, restricted by security-group reference
+- Web to daemon: loopback TCP 8384 inside the same Fargate task
+- Daemon to RDS: TCP 5432, restricted by security-group reference
+- Task to EFS: encrypted NFS TCP 2049, restricted by security-group reference
+- Task outbound: HTTPS 443 to `AllowedHttpsEgressCidr`
+
+The daemon port is never exposed through the ALB. The database is not exposed publicly by this template. Start with a restricted `AllowedIngressCidr`; use `0.0.0.0/0` only when the application is intentionally public and application authentication is ready.
+
+## IAM role purpose
+
+- Task execution role: used by ECS before container startup to pull Marketplace ECR images, create log streams, publish container logs, and read `ApplicationSecretArn`.
+- Task role: used by the running application. It starts without AWS API permissions. Add narrowly scoped permissions only for customer-enabled integrations and the selected Marketplace licensing model.
+
+The template never requests access keys. Containers obtain temporary credentials from ECS task-role metadata.
+
+## Encryption and data lifecycle
+
+- Public traffic terminates with TLS at the ALB using ACM.
+- Application-to-RDS TLS is controlled by `databaseUrl`; use `sslmode=require` or the stronger verification mode supported by your certificate setup.
+- EFS data is encrypted at rest and in transit, and automatic EFS backups are enabled.
+- Secrets are retrieved from Secrets Manager and are not stored as plaintext CloudFormation parameters or ECS environment values.
+- CloudWatch logs are retained for `LogRetentionDays`; avoid logging prompts, credentials, or secret values.
+- The encrypted EFS file system is retained when the stack is deleted. Delete it and its backups separately only after preserving required customer data.
+- RDS retention, backups, snapshots, and deletion remain under the customer's existing database policy.
+
+## Operations and upgrades
+
+Check service health and logs:
+
+```bash
+aws ecs describe-services --cluster opsrabbit-cluster --services opsrabbit-service
+aws logs tail /ecs/opsrabbit/daemon --follow
+aws logs tail /ecs/opsrabbit/web --follow
+```
+
+For upgrades, back up RDS and verify EFS backup status, replace both image parameters with the new Marketplace version digests, and update the stack. The ECS deployment circuit breaker rolls back a failed service deployment, but it cannot reverse a database migration. Follow the product release notes for migration compatibility and rollback requirements.
+
+Do not rotate `encryptionKey` during routine upgrades. Secret updates require a new ECS deployment so replacement tasks retrieve the new secret version.
+
+## AWS service costs and quotas
+
+Customers pay separately for Fargate CPU and memory, the Application Load Balancer and capacity units, EFS storage and backups, CloudWatch Logs ingestion and retention, Secrets Manager, RDS, data transfer, and NAT gateways or VPC endpoints. Review current regional pricing before deployment.
+
+Check quotas for Fargate tasks, ENIs and IP addresses, ALBs, target groups, security groups and rules, EFS file systems/access points, CloudWatch log groups, and RDS capacity. Each running task consumes a private-subnet IP address. Request quota increases before production rollout when required.
+
+## Validation and troubleshooting
+
+- `ResourceInitializationError` while pulling images: verify subscription, Marketplace image URI, execution-role ECR permissions, and NAT/VPC endpoint routing.
+- Secret retrieval failure: verify the secret ARN, required JSON keys, execution-role access, region, and KMS permissions.
+- EFS mount failure: verify both private subnet Availability Zones, mount targets, NFS security-group rules, UID/GID compatibility, and network ACLs.
+- RDS connection failure: verify the URL, TLS parameters, database availability, RDS security group, route tables, and network ACLs.
+- ALB target unhealthy: inspect both CloudWatch log groups and ECS container health. The web container waits for the daemon health check.
+- Browser certificate error: verify DNS points to the output ALB and the ACM certificate covers `PublicDomainName`.
+
+Before publishing a version, run `cfn-lint bundle/ecs/opsrabbit-ecs-fargate.yaml` and deploy it in an allow-listed test buyer account using the exact Marketplace images and pricing integration intended for release.

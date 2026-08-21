@@ -1,36 +1,16 @@
 [
-  { "ParameterKey": "StackName", "ParameterValue": "opsrabbit-ecs" },
-  { "ParameterKey": "ClusterName", "ParameterValue": "opsrabbit-cluster" },
-  { "ParameterKey": "VpcId", "ParameterValue": "vpc-xxxxxxxxxxxxxxxxx" },
-  { "ParameterKey": "PublicSubnets", "ParameterValue": "subnet-xxxxxxxxxxxxxxxxx,subnet-yyyyyyyyyyyyyyyyy" },
-  { "ParameterKey": "PrivateSubnets", "ParameterValue": "subnet-xxxxxxxxxxxxxxxxx,subnet-yyyyyyyyyyyyyyyyy" },
-  { "ParameterKey": "ExecutionRoleArn", "ParameterValue": "arn:aws:iam::123456789012:role/ecsTaskExecutionRole" },
-  { "ParameterKey": "TaskRoleArn", "ParameterValue": "arn:aws:iam::123456789012:role/opsrabbitEcsTaskRole" },
-  { "ParameterKey": "ALBName", "ParameterValue": "opsrabbit-alb" },
+  { "ParameterKey": "StackName", "ParameterValue": "opsrabbit" },
+  { "ParameterKey": "VpcId", "ParameterValue": "vpc-REPLACE_ME" },
+  { "ParameterKey": "PublicSubnets", "ParameterValue": "subnet-PUBLIC_A,subnet-PUBLIC_B" },
+  { "ParameterKey": "PrivateSubnets", "ParameterValue": "subnet-PRIVATE_A,subnet-PRIVATE_B" },
+  { "ParameterKey": "DatabaseSecurityGroupId", "ParameterValue": "sg-RDS_REPLACE_ME" },
+  { "ParameterKey": "AllowedIngressCidr", "ParameterValue": "203.0.113.0/24" },
+  { "ParameterKey": "AllowedHttpsEgressCidr", "ParameterValue": "0.0.0.0/0" },
+  { "ParameterKey": "OpsRabbitDaemonImage", "ParameterValue": "REPLACE_WITH_MARKETPLACE_DAEMON_IMAGE_URI_OR_DIGEST" },
+  { "ParameterKey": "OpsRabbitWebImage", "ParameterValue": "REPLACE_WITH_MARKETPLACE_WEB_IMAGE_URI_OR_DIGEST" },
+  { "ParameterKey": "ApplicationSecretArn", "ParameterValue": "arn:aws:secretsmanager:us-east-1:123456789012:secret:opsrabbit/application-REPLACE_ME" },
+  { "ParameterKey": "PublicDomainName", "ParameterValue": "opsrabbit.example.com" },
+  { "ParameterKey": "CertificateArn", "ParameterValue": "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE_ME" },
   { "ParameterKey": "DesiredCount", "ParameterValue": "1" },
-  { "ParameterKey": "Cpu", "ParameterValue": "512" },
-  { "ParameterKey": "Memory", "ParameterValue": "2048" },
-  {
-    "ParameterKey": "OPSRABBIT_DAEMON_IMAGE",
-    "ParameterValue": "921870554228.dkr.ecr.us-east-1.amazonaws.com/vg-backend:latestv2"
-  },
-  {
-    "ParameterKey": "OPSRABBIT_WEB_IMAGE",
-    "ParameterValue": "921870554228.dkr.ecr.us-east-1.amazonaws.com/vg-webapp:latestv2"
-  },
-  {
-    "ParameterKey": "OPSRABBIT_NODE_DATABASE_URL",
-    "ParameterValue": "postgresql://postgres:password@db.example.com:5432/opsrabbit_neo"
-  },
-  { "ParameterKey": "BETTER_AUTH_SECRET", "ParameterValue": "change-me" },
-  { "ParameterKey": "OPSRABBIT_NODE_ENCRYPTION_KEY", "ParameterValue": "change-me" },
-  { "ParameterKey": "OPSRABBIT_WEB_ORIGIN", "ParameterValue": "https://opsrabbit.example.com" },
-  { "ParameterKey": "OPSRABBIT_NODE_BASE_URL", "ParameterValue": "https://opsrabbit.example.com/api" },
-  { "ParameterKey": "UseHttps", "ParameterValue": "false" },
-  { "ParameterKey": "CertificateArn", "ParameterValue": "" },
-  { "ParameterKey": "DatabaseSecurityGroupId", "ParameterValue": "" },
-  { "ParameterKey": "DatabaseCidr", "ParameterValue": "" },
-  { "ParameterKey": "AllowedEgressCidr", "ParameterValue": "0.0.0.0/0" },
-  { "ParameterKey": "OPSRABBIT_BACKEND_PORT", "ParameterValue": "8384" },
-  { "ParameterKey": "WEB_HTTP_PORT", "ParameterValue": "80" }
+  { "ParameterKey": "LogRetentionDays", "ParameterValue": "30" }
 ]

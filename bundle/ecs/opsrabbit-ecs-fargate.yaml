@@ -1,333 +1,270 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: "OpsRabbit ECS Fargate reference stack (starter). Uses image-only container paths."
+Description: "OpsRabbit on Amazon ECS Fargate with an existing Amazon RDS for PostgreSQL database."
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterGroups:
+      - Label: {default: Network}
+        Parameters: [VpcId, PublicSubnets, PrivateSubnets, DatabaseSecurityGroupId, AllowedIngressCidr, AllowedHttpsEgressCidr]
+      - Label: {default: Application}
+        Parameters: [OpsRabbitDaemonImage, OpsRabbitWebImage, ApplicationSecretArn, PublicDomainName, CertificateArn]
+      - Label: {default: Operations}
+        Parameters: [StackName, DesiredCount, LogRetentionDays]
 
 Rules:
-  DatabaseEgressRequired:
-    Description: "Either DatabaseSecurityGroupId or DatabaseCidr must be set when deploying with a database in another security domain."
+  HttpsConfigurationRequired:
     Assertions:
       - Assert:
-          Fn::Or:
-            - Fn::Not:
-                - Fn::Equals:
-                    - Ref: DatabaseSecurityGroupId
-                    - ""
-            - Fn::Not:
-                - Fn::Equals:
-                    - Ref: DatabaseCidr
-                    - ""
-        AssertDescription: "Set DatabaseSecurityGroupId or DatabaseCidr before launching the stack."
+          Fn::And:
+            - Fn::Not: [{Fn::Equals: [{Ref: CertificateArn}, ""]}]
+            - Fn::Not: [{Fn::Equals: [{Ref: PublicDomainName}, ""]}]
+        AssertDescription: "CertificateArn and PublicDomainName are required."
 
 Parameters:
   StackName:
     Type: String
-    Default: opsrabbit-ecs
-  ClusterName:
-    Type: String
-    Default: opsrabbit-cluster
+    Default: opsrabbit
+    AllowedPattern: "[a-z][a-z0-9-]{2,20}"
   VpcId:
     Type: AWS::EC2::VPC::Id
+    Description: "VPC containing the ALB, ECS tasks, EFS, and existing RDS database."
   PublicSubnets:
     Type: List<AWS::EC2::Subnet::Id>
+    Description: "At least two public subnets in different Availability Zones."
   PrivateSubnets:
     Type: List<AWS::EC2::Subnet::Id>
-  ExecutionRoleArn:
+    Description: "Exactly two private subnets in different Availability Zones."
+  DatabaseSecurityGroupId:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: "Security group attached to the existing RDS for PostgreSQL database."
+  AllowedIngressCidr:
     Type: String
-  TaskRoleArn:
+    Description: "IPv4 CIDR allowed to reach HTTPS. Use 0.0.0.0/0 only for an intentionally public deployment."
+    AllowedPattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])$"
+  AllowedHttpsEgressCidr:
     Type: String
-  ALBName:
+    Default: "0.0.0.0/0"
+    Description: "Outbound HTTPS CIDR for application integrations and AWS APIs."
+    AllowedPattern: "^(?:[0-9]{1,3}\\.){3}[0-9]{1,3}/(?:[0-9]|[12][0-9]|3[0-2])$"
+  OpsRabbitDaemonImage:
     Type: String
-    Default: opsrabbit-alb
+    MinLength: 20
+    Description: "Immutable daemon image URI from this product's AWS Marketplace fulfillment page."
+  OpsRabbitWebImage:
+    Type: String
+    MinLength: 20
+    Description: "Immutable web image URI from this product's AWS Marketplace fulfillment page."
+  ApplicationSecretArn:
+    Type: String
+    Description: "Secrets Manager JSON secret ARN with databaseUrl, betterAuthSecret, and encryptionKey keys."
+    AllowedPattern: "^arn:[^:]+:secretsmanager:[^:]+:[0-9]{12}:secret:.+$"
+  PublicDomainName:
+    Type: String
+    Description: "DNS name for OpsRabbit. Point it to the WebLoadBalancerDnsName output."
+    AllowedPattern: "^(?=.{1,253}$)([A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\\.)+[A-Za-z]{2,63}$"
+  CertificateArn:
+    Type: String
+    Description: "Issued ACM certificate in this region covering PublicDomainName."
+    AllowedPattern: "^arn:[^:]+:acm:[^:]+:[0-9]{12}:certificate/.+$"
   DesiredCount:
     Type: Number
     Default: 1
-  Cpu:
+    MinValue: 1
+    MaxValue: 10
+  LogRetentionDays:
     Type: Number
-    Default: 512
-  Memory:
-    Type: Number
-    Default: 2048
-  OPSRABBIT_DAEMON_IMAGE:
-    Type: String
-  OPSRABBIT_WEB_IMAGE:
-    Type: String
-  OPSRABBIT_NODE_DATABASE_URL:
-    Type: String
-    NoEcho: true
-  BETTER_AUTH_SECRET:
-    Type: String
-    NoEcho: true
-  OPSRABBIT_NODE_ENCRYPTION_KEY:
-    Type: String
-    NoEcho: true
-  OPSRABBIT_WEB_ORIGIN:
-    Type: String
-  OPSRABBIT_NODE_BASE_URL:
-    Type: String
-  OPSRABBIT_BACKEND_PORT:
-    Type: Number
-    Default: 8384
-  WEB_HTTP_PORT:
-    Type: Number
-    Default: 80
-  UseHttps:
-    Type: String
-    Default: "false"
-    AllowedValues:
-      - "true"
-      - "false"
-    Description: "Set to true to create HTTPS listener on 443 and redirect HTTP to HTTPS."
-  CertificateArn:
-    Type: String
-    Default: ""
-    Description: "Required when UseHttps=true. ACM certificate ARN in the same region as this stack."
-  DatabaseSecurityGroupId:
-    Type: String
-    Default: ""
-    Description: "Optional RDS/DB security group id for restricted egress to Postgres on 5432."
-  DatabaseCidr:
-    Type: String
-    Default: ""
-    Description: "Optional CIDR for DB egress (alternative to DatabaseSecurityGroupId)."
-  AllowedEgressCidr:
-    Type: String
-    Default: "0.0.0.0/0"
-    Description: "CIDR to allow outbound HTTPS (443) traffic for external services. Narrow this in production."
-
-Conditions:
-  EnableHttps: !Equals [!Ref UseHttps, "true"]
-  HasDbSecurityGroup: !Not [!Equals [!Ref DatabaseSecurityGroupId, ""]]
-  HasDbCidr: !Not [!Equals [!Ref DatabaseCidr, ""]]
+    Default: 30
+    AllowedValues: [7, 14, 30, 60, 90, 180, 365]
 
 Resources:
-  OpsRabbitCluster:
+  Cluster:
     Type: AWS::ECS::Cluster
     Properties:
-      ClusterName: !Ref ClusterName
+      ClusterName: !Sub "${StackName}-cluster"
+      ClusterSettings: [{Name: containerInsights, Value: enabled}]
 
-  OpsRabbitLogGroup:
+  DaemonLogGroup:
     Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/ecs/${StackName}/daemon"
-      RetentionInDays: 14
-
-  OpsRabbitWebLogGroup:
+    Properties: {LogGroupName: !Sub "/ecs/${StackName}/daemon", RetentionInDays: !Ref LogRetentionDays}
+  WebLogGroup:
     Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/ecs/${StackName}/web"
-      RetentionInDays: 14
+    Properties: {LogGroupName: !Sub "/ecs/${StackName}/web", RetentionInDays: !Ref LogRetentionDays}
 
-  OpsRabbitTaskDefinition:
+  TaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: "sts:AssumeRole"}]
+      ManagedPolicyArns: [arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy]
+      Policies:
+        - PolicyName: ReadApplicationSecret
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement: [{Effect: Allow, Action: "secretsmanager:GetSecretValue", Resource: !Ref ApplicationSecretArn}]
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Description: "Runtime identity. Add only permissions required by enabled OpsRabbit integrations."
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement: [{Effect: Allow, Principal: {Service: ecs-tasks.amazonaws.com}, Action: "sts:AssumeRole"}]
+
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Customer-selected HTTPS ingress to OpsRabbit"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: [{IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: !Ref AllowedIngressCidr}]
+  ServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "ALB ingress and restricted task egress"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: [{IpProtocol: tcp, FromPort: 80, ToPort: 80, SourceSecurityGroupId: !Ref AlbSecurityGroup}]
+      SecurityGroupEgress: [{IpProtocol: tcp, FromPort: 443, ToPort: 443, CidrIp: !Ref AllowedHttpsEgressCidr}]
+  AlbToServiceEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: {GroupId: !Ref AlbSecurityGroup, IpProtocol: tcp, FromPort: 80, ToPort: 80, DestinationSecurityGroupId: !Ref ServiceSecurityGroup}
+  DatabaseIngress:
+    Type: AWS::EC2::SecurityGroupIngress
+    Properties: {GroupId: !Ref DatabaseSecurityGroupId, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, SourceSecurityGroupId: !Ref ServiceSecurityGroup, Description: "PostgreSQL from OpsRabbit"}
+  DatabaseEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: {GroupId: !Ref ServiceSecurityGroup, IpProtocol: tcp, FromPort: 5432, ToPort: 5432, DestinationSecurityGroupId: !Ref DatabaseSecurityGroupId}
+
+  EfsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Encrypted NFS from OpsRabbit tasks"
+      VpcId: !Ref VpcId
+      SecurityGroupIngress: [{IpProtocol: tcp, FromPort: 2049, ToPort: 2049, SourceSecurityGroupId: !Ref ServiceSecurityGroup}]
+  EfsEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Properties: {GroupId: !Ref ServiceSecurityGroup, IpProtocol: tcp, FromPort: 2049, ToPort: 2049, DestinationSecurityGroupId: !Ref EfsSecurityGroup}
+  FileSystem:
+    Type: AWS::EFS::FileSystem
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Encrypted: true
+      BackupPolicy: {Status: ENABLED}
+      FileSystemTags: [{Key: Name, Value: !Sub "${StackName}-persistent-data"}]
+  MountTargetA:
+    Type: AWS::EFS::MountTarget
+    Properties: {FileSystemId: !Ref FileSystem, SubnetId: !Select [0, !Ref PrivateSubnets], SecurityGroups: [!Ref EfsSecurityGroup]}
+  MountTargetB:
+    Type: AWS::EFS::MountTarget
+    Properties: {FileSystemId: !Ref FileSystem, SubnetId: !Select [1, !Ref PrivateSubnets], SecurityGroups: [!Ref EfsSecurityGroup]}
+
+  DataAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties: {FileSystemId: !Ref FileSystem, PosixUser: {Uid: "1000", Gid: "1000"}, RootDirectory: {Path: /opsrabbit, CreationInfo: {OwnerUid: "1000", OwnerGid: "1000", Permissions: "0750"}}}
+  BrowserAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties: {FileSystemId: !Ref FileSystem, PosixUser: {Uid: "1000", Gid: "1000"}, RootDirectory: {Path: /agent-browser, CreationInfo: {OwnerUid: "1000", OwnerGid: "1000", Permissions: "0750"}}}
+  CodexAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties: {FileSystemId: !Ref FileSystem, PosixUser: {Uid: "1000", Gid: "1000"}, RootDirectory: {Path: /codex, CreationInfo: {OwnerUid: "1000", OwnerGid: "1000", Permissions: "0750"}}}
+  GitAccessPoint:
+    Type: AWS::EFS::AccessPoint
+    Properties: {FileSystemId: !Ref FileSystem, PosixUser: {Uid: "1000", Gid: "1000"}, RootDirectory: {Path: /git, CreationInfo: {OwnerUid: "1000", OwnerGid: "1000", Permissions: "0750"}}}
+
+  TaskDefinition:
     Type: AWS::ECS::TaskDefinition
+    DependsOn: [MountTargetA, MountTargetB]
     Properties:
       Family: !Sub "${StackName}-task"
       NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      Cpu: !Ref Cpu
-      Memory: !Ref Memory
-      ExecutionRoleArn: !Ref ExecutionRoleArn
-      TaskRoleArn: !Ref TaskRoleArn
+      RequiresCompatibilities: [FARGATE]
+      Cpu: "512"
+      Memory: "2048"
+      ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      Volumes:
+        - {Name: opsrabbit-data, EFSVolumeConfiguration: {FilesystemId: !Ref FileSystem, TransitEncryption: ENABLED, AuthorizationConfig: {AccessPointId: !Ref DataAccessPoint, IAM: DISABLED}}}
+        - {Name: agent-browser, EFSVolumeConfiguration: {FilesystemId: !Ref FileSystem, TransitEncryption: ENABLED, AuthorizationConfig: {AccessPointId: !Ref BrowserAccessPoint, IAM: DISABLED}}}
+        - {Name: codex-data, EFSVolumeConfiguration: {FilesystemId: !Ref FileSystem, TransitEncryption: ENABLED, AuthorizationConfig: {AccessPointId: !Ref CodexAccessPoint, IAM: DISABLED}}}
+        - {Name: git-workspace, EFSVolumeConfiguration: {FilesystemId: !Ref FileSystem, TransitEncryption: ENABLED, AuthorizationConfig: {AccessPointId: !Ref GitAccessPoint, IAM: DISABLED}}}
       ContainerDefinitions:
         - Name: daemon
-          Image: !Ref OPSRABBIT_DAEMON_IMAGE
+          Image: !Ref OpsRabbitDaemonImage
           Essential: true
-          StopTimeout: 135
+          StopTimeout: 120
           Environment:
-            - Name: OPSRABBIT_NODE_HOST
-              Value: "0.0.0.0"
-            - Name: OPSRABBIT_NODE_PORT
-              Value: !Ref OPSRABBIT_BACKEND_PORT
-            - Name: OPSRABBIT_NODE_DATABASE_URL
-              Value: !Ref OPSRABBIT_NODE_DATABASE_URL
-            - Name: BETTER_AUTH_SECRET
-              Value: !Ref BETTER_AUTH_SECRET
-            - Name: OPSRABBIT_NODE_ENCRYPTION_KEY
-              Value: !Ref OPSRABBIT_NODE_ENCRYPTION_KEY
-            - Name: OPSRABBIT_WEB_ORIGIN
-              Value: !Ref OPSRABBIT_WEB_ORIGIN
-            - Name: OPSRABBIT_NODE_BASE_URL
-              Value: !Ref OPSRABBIT_NODE_BASE_URL
-          PortMappings:
-            - ContainerPort: !Ref OPSRABBIT_BACKEND_PORT
-              Protocol: tcp
+            - {Name: OPSRABBIT_NODE_HOST, Value: "0.0.0.0"}
+            - {Name: OPSRABBIT_NODE_PORT, Value: "8384"}
+            - {Name: OPSRABBIT_NODE_DATA_DIR, Value: /home/opsbot/.opsrabbit}
+            - {Name: OPSRABBIT_NODE_WORKSPACE_DIR, Value: /home/opsbot/git}
+            - {Name: OPSRABBIT_WEB_ORIGIN, Value: !Sub "https://${PublicDomainName}"}
+            - {Name: OPSRABBIT_NODE_BASE_URL, Value: !Sub "https://${PublicDomainName}/api"}
+          Secrets:
+            - {Name: OPSRABBIT_NODE_DATABASE_URL, ValueFrom: !Sub "${ApplicationSecretArn}:databaseUrl::"}
+            - {Name: BETTER_AUTH_SECRET, ValueFrom: !Sub "${ApplicationSecretArn}:betterAuthSecret::"}
+            - {Name: OPSRABBIT_NODE_ENCRYPTION_KEY, ValueFrom: !Sub "${ApplicationSecretArn}:encryptionKey::"}
+          MountPoints:
+            - {SourceVolume: opsrabbit-data, ContainerPath: /home/opsbot/.opsrabbit}
+            - {SourceVolume: agent-browser, ContainerPath: /home/opsbot/.agent-browser}
+            - {SourceVolume: codex-data, ContainerPath: /home/opsbot/.codex}
+            - {SourceVolume: git-workspace, ContainerPath: /home/opsbot/git}
+          PortMappings: [{ContainerPort: 8384, Protocol: tcp}]
           HealthCheck:
-            Command:
-              - CMD-SHELL
-              - !Sub "curl -fsS http://127.0.0.1:${OPSRABBIT_BACKEND_PORT}/health"
+            Command: [CMD-SHELL, "node -e \"fetch('http://127.0.0.1:8384/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
             Interval: 30
             Timeout: 10
             Retries: 3
             StartPeriod: 30
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref OpsRabbitLogGroup
-              awslogs-region: !Sub "${AWS::Region}"
-              awslogs-stream-prefix: daemon
+          LogConfiguration: {LogDriver: awslogs, Options: {awslogs-group: !Ref DaemonLogGroup, awslogs-region: !Ref "AWS::Region", awslogs-stream-prefix: daemon}}
         - Name: web
-          Image: !Ref OPSRABBIT_WEB_IMAGE
+          Image: !Ref OpsRabbitWebImage
           Essential: true
-          DependsOn:
-            - Condition: HEALTHY
-              ContainerName: daemon
+          DependsOn: [{ContainerName: daemon, Condition: HEALTHY}]
           Environment:
-            - Name: VITE_API_URL
-              Value: /api
-            - Name: WEB_API_UPSTREAM
-              Value: !Sub "http://127.0.0.1:${OPSRABBIT_BACKEND_PORT}"
-            - Name: WEB_TLS_MODE
-              Value: http
-          PortMappings:
-            - ContainerPort: !Ref WEB_HTTP_PORT
-              HostPort: !Ref WEB_HTTP_PORT
-              Protocol: tcp
-          HealthCheck:
-            Command:
-              - CMD-SHELL
-              - "wget --spider --quiet http://127.0.0.1/"
-            Interval: 30
-            Timeout: 5
-            Retries: 5
-            StartPeriod: 10
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Ref OpsRabbitWebLogGroup
-              awslogs-region: !Sub "${AWS::Region}"
-              awslogs-stream-prefix: web
+            - {Name: VITE_API_URL, Value: /api}
+            - {Name: WEB_API_UPSTREAM, Value: "http://127.0.0.1:8384"}
+            - {Name: WEB_TLS_MODE, Value: http}
+          PortMappings: [{ContainerPort: 80, Protocol: tcp}]
+          HealthCheck: {Command: [CMD-SHELL, "wget --spider --quiet http://127.0.0.1/"], Interval: 30, Timeout: 5, Retries: 5, StartPeriod: 10}
+          LogConfiguration: {LogDriver: awslogs, Options: {awslogs-group: !Ref WebLogGroup, awslogs-region: !Ref "AWS::Region", awslogs-stream-prefix: web}}
 
-  OpsRabbitALBSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow ALB ingress for OpsRabbit web
-      VpcId: !Ref VpcId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: !Ref WEB_HTTP_PORT
-          ToPort: !Ref WEB_HTTP_PORT
-          CidrIp: 0.0.0.0/0
-
-  OpsRabbitServiceSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Allow web traffic to web and internal backend call path
-      VpcId: !Ref VpcId
-      SecurityGroupIngress:
-        - IpProtocol: tcp
-          FromPort: !Ref WEB_HTTP_PORT
-          ToPort: !Ref WEB_HTTP_PORT
-          SourceSecurityGroupId: !Ref OpsRabbitALBSecurityGroup
-      SecurityGroupEgress:
-        - IpProtocol: tcp
-          FromPort: 443
-          ToPort: 443
-          CidrIp: !Ref AllowedEgressCidr
-
-  OpsRabbitServiceDbEgress:
-    Type: AWS::EC2::SecurityGroupEgress
-    Condition: HasDbSecurityGroup
-    Properties:
-      GroupId: !Ref OpsRabbitServiceSecurityGroup
-      IpProtocol: tcp
-      FromPort: 5432
-      ToPort: 5432
-      DestinationSecurityGroupId: !Ref DatabaseSecurityGroupId
-
-  OpsRabbitServiceDbCidrEgress:
-    Type: AWS::EC2::SecurityGroupEgress
-    Condition: HasDbCidr
-    Properties:
-      GroupId: !Ref OpsRabbitServiceSecurityGroup
-      IpProtocol: tcp
-      FromPort: 5432
-      ToPort: 5432
-      CidrIp: !Ref DatabaseCidr
-
-  OpsRabbitTargetGroup:
+  TargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Name: !Sub "${StackName}-web"
-      Port: !Ref WEB_HTTP_PORT
-      Protocol: HTTP
-      VpcId: !Ref VpcId
-      TargetType: ip
-      HealthCheckPath: /
-      Matcher:
-        HttpCode: 200
-
-  OpsRabbitAlb:
+    Properties: {Port: 80, Protocol: HTTP, VpcId: !Ref VpcId, TargetType: ip, HealthCheckPath: /, Matcher: {HttpCode: "200-399"}, TargetGroupAttributes: [{Key: deregistration_delay.timeout_seconds, Value: "120"}]}
+  LoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Name: !Ref ALBName
-      Scheme: internet-facing
-      Type: application
-      Subnets: !Ref PublicSubnets
-      SecurityGroups:
-        - !Ref OpsRabbitALBSecurityGroup
-      IpAddressType: ipv4
-
-  OpsRabbitAlbListener:
+    Properties: {Scheme: internet-facing, Type: application, Subnets: !Ref PublicSubnets, SecurityGroups: [!Ref AlbSecurityGroup]}
+  HttpsListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
-      LoadBalancerArn: !Ref OpsRabbitAlb
-      Port: !Ref WEB_HTTP_PORT
-      Protocol: HTTP
-      DefaultActions: !If
-        - EnableHttps
-        -
-          - Type: redirect
-            RedirectConfig:
-              Protocol: HTTPS
-              Port: "443"
-              Host: "#{host}"
-              Path: /#{path}
-              Query: "#{query}"
-              StatusCode: HTTP_301
-        -
-          - Type: forward
-            TargetGroupArn: !Ref OpsRabbitTargetGroup
-
-  OpsRabbitAlbHttpsListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Condition: EnableHttps
-    Properties:
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref OpsRabbitTargetGroup
-      LoadBalancerArn: !Ref OpsRabbitAlb
+      LoadBalancerArn: !Ref LoadBalancer
       Port: 443
       Protocol: HTTPS
-      Certificates:
-        - CertificateArn: !Ref CertificateArn
-
-  OpsRabbitService:
+      SslPolicy: ELBSecurityPolicy-TLS13-1-2-2021-06
+      Certificates: [{CertificateArn: !Ref CertificateArn}]
+      DefaultActions: [{Type: forward, TargetGroupArn: !Ref TargetGroup}]
+  Service:
     Type: AWS::ECS::Service
+    DependsOn: HttpsListener
     Properties:
-      Cluster: !Ref OpsRabbitCluster
+      Cluster: !Ref Cluster
       ServiceName: !Sub "${StackName}-service"
-      TaskDefinition: !Ref OpsRabbitTaskDefinition
+      TaskDefinition: !Ref TaskDefinition
       LaunchType: FARGATE
+      PlatformVersion: "1.4.0"
       DesiredCount: !Ref DesiredCount
-      LoadBalancers:
-        - ContainerName: web
-          ContainerPort: !Ref WEB_HTTP_PORT
-          TargetGroupArn: !Ref OpsRabbitTargetGroup
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: DISABLED
-          SecurityGroups:
-            - !Ref OpsRabbitServiceSecurityGroup
-          Subnets: !Ref PrivateSubnets
+      DeploymentConfiguration: {DeploymentCircuitBreaker: {Enable: true, Rollback: true}, MinimumHealthyPercent: 100, MaximumPercent: 200}
+      HealthCheckGracePeriodSeconds: 120
+      LoadBalancers: [{ContainerName: web, ContainerPort: 80, TargetGroupArn: !Ref TargetGroup}]
+      NetworkConfiguration: {AwsvpcConfiguration: {AssignPublicIp: DISABLED, SecurityGroups: [!Ref ServiceSecurityGroup], Subnets: !Ref PrivateSubnets}}
+      PropagateTags: SERVICE
 
 Outputs:
-  ClusterName:
-    Value: !Ref ClusterName
-  ServiceName:
-    Value: !Ref OpsRabbitService
-  WebUrl:
-    Description: "HTTP URL of the OpsRabbit service"
-    Value: !If
-      - EnableHttps
-      - !Sub "https://${OpsRabbitAlb.DNSName}"
-      - !Sub "http://${OpsRabbitAlb.DNSName}"
-*** End Patch
+  ClusterName: {Value: !Ref Cluster}
+  ServiceName: {Value: !GetAtt Service.Name}
+  WebUrl: {Value: !Sub "https://${PublicDomainName}"}
+  WebLoadBalancerDnsName:
+    Description: "Create a DNS alias or CNAME for PublicDomainName pointing to this value."
+    Value: !GetAtt LoadBalancer.DNSName
+  FileSystemId:
+    Description: "Retained encrypted EFS file system containing OpsRabbit persistent data."
+    Value: !Ref FileSystem
