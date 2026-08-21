@@ -66,6 +66,17 @@ Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRA
 
 It then installs missing prerequisites, installs the official architecture-specific AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application secrets, logs in to ECR, pulls the images, starts the services, and checks backend and web health.
 
+## ECS-based deployment option
+
+The release archive also includes `bundle-ecs/` with an ECS Fargate CloudFormation deployment for an existing RDS for PostgreSQL database:
+
+- `bundle-ecs/opsrabbit-ecs-fargate.yaml` (CloudFormation)
+- `bundle-ecs/opsrabbit-ecs.template.env`
+
+The ECS stack provisions the cluster, service, load balancer, IAM roles, logging, security groups, and encrypted EFS persistence. It accepts immutable AWS Marketplace image URIs, retrieves application secrets from Secrets Manager, persists the OpsRabbit offline license, and uses the Docker-free `local-process` worker profile. The Compose install flow remains unchanged and is still the default path for this installer.
+
+See `bundle-ecs/README.md` for deployment steps and implementation notes.
+
 Use immutable image tags or digests for production rather than `latest`.
 
 ## AWS authentication

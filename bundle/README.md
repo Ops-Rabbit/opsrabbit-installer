@@ -2,6 +2,16 @@
 
 This bundle deploys the core OpsRabbit stack without copying application source code to the server. It contains only an installer, an operations helper, and an image-only Compose manifest.
 
+## ECS deployment reference assets
+
+In addition to the default Compose path, this bundle now includes:
+
+- `ecs/opsrabbit-ecs-fargate.yaml`
+- `ecs/opsrabbit-ecs.template.env`
+- `ecs/README.md`
+
+These files provide a Docker-free ECS/Fargate deployment using the product's `local-process` worker profile, an existing RDS for PostgreSQL database, Secrets Manager, HTTPS, encrypted EFS persistence, and the OpsRabbit offline license. They are packaged as a separate AWS Marketplace deployment option. The default behavior and files (`install.sh`, `docker-compose.yml`, `opsrabbitctl`) are unchanged.
+
 ## Requirements
 
 - Debian or Ubuntu server

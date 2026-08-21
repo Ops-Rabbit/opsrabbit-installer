@@ -1,0 +1,16 @@
+[
+  { "ParameterKey": "StackName", "ParameterValue": "opsrabbit" },
+  { "ParameterKey": "VpcId", "ParameterValue": "vpc-REPLACE_ME" },
+  { "ParameterKey": "PublicSubnets", "ParameterValue": "subnet-PUBLIC_A,subnet-PUBLIC_B" },
+  { "ParameterKey": "PrivateSubnets", "ParameterValue": "subnet-PRIVATE_A,subnet-PRIVATE_B" },
+  { "ParameterKey": "DatabaseSecurityGroupId", "ParameterValue": "sg-RDS_REPLACE_ME" },
+  { "ParameterKey": "AllowedIngressCidr", "ParameterValue": "203.0.113.0/24" },
+  { "ParameterKey": "AllowedHttpsEgressCidr", "ParameterValue": "0.0.0.0/0" },
+  { "ParameterKey": "OpsRabbitDaemonImage", "ParameterValue": "REPLACE_WITH_MARKETPLACE_DAEMON_IMAGE_URI_OR_DIGEST" },
+  { "ParameterKey": "OpsRabbitWebImage", "ParameterValue": "REPLACE_WITH_MARKETPLACE_WEB_IMAGE_URI_OR_DIGEST" },
+  { "ParameterKey": "ApplicationSecretArn", "ParameterValue": "arn:aws:secretsmanager:us-east-1:123456789012:secret:opsrabbit/application-REPLACE_ME" },
+  { "ParameterKey": "PublicDomainName", "ParameterValue": "opsrabbit.example.com" },
+  { "ParameterKey": "CertificateArn", "ParameterValue": "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE_ME" },
+  { "ParameterKey": "DesiredCount", "ParameterValue": "1" },
+  { "ParameterKey": "LogRetentionDays", "ParameterValue": "30" }
+]

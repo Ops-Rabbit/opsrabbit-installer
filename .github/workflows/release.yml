@@ -16,10 +16,23 @@ jobs:
         run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl tests/opsrabbitctl.test.sh
       - name: Test operations helper
         run: bash tests/opsrabbitctl.test.sh
+      - name: Validate ECS Marketplace assets
+        run: |
+          pip install --disable-pip-version-check cfn-lint
+          cfn-lint bundle/ecs/opsrabbit-ecs-fargate.yaml
+          python -m json.tool bundle/ecs/opsrabbit-ecs.parameters.example.json >/dev/null
+          ! rg -n "change-me|latestv2|postgresql://[^ ]+:[^ ]+@|\\*\\*\\* End Patch" \
+            bundle/ecs/opsrabbit-ecs-fargate.yaml \
+            bundle/ecs/opsrabbit-ecs.parameters.example.json \
+            bundle/ecs/opsrabbit-ecs.template.env
       - name: Build release archive
         run: |
           mkdir -p release/assets release/opsrabbit-aws-image-bundle
           cp bundle/install.sh bundle/opsrabbitctl bundle/docker-compose.yml bundle/README.md release/opsrabbit-aws-image-bundle/
+          mkdir -p release/opsrabbit-aws-image-bundle/bundle-ecs
+          cp -R bundle/ecs/* release/opsrabbit-aws-image-bundle/bundle-ecs/
+          test -f release/opsrabbit-aws-image-bundle/docker-compose.yml
+          test -f release/opsrabbit-aws-image-bundle/bundle-ecs/opsrabbit-ecs-fargate.yaml
           cp install.sh release/assets/install.sh
           sed -i "s/^default_version=.*/default_version=\"${GITHUB_REF_NAME}\"/" release/assets/install.sh
           grep -F "default_version=\"${GITHUB_REF_NAME}\"" release/assets/install.sh
