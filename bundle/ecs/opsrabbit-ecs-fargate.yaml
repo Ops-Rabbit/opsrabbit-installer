@@ -36,6 +36,7 @@ Parameters:
     Type: String
   OPSRABBIT_NODE_DATABASE_URL:
     Type: String
+    NoEcho: true
   BETTER_AUTH_SECRET:
     Type: String
     NoEcho: true

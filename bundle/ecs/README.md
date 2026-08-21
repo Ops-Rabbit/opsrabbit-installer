@@ -20,6 +20,7 @@ The existing Compose installer and assets remain unchanged.
    - `BETTER_AUTH_SECRET`
    - `OPSRABBIT_NODE_ENCRYPTION_KEY`
    - `OPSRABBIT_WEB_ORIGIN`
+   - `OPSRABBIT_NODE_BASE_URL`
 
 2. Create required AWS resources:
 
@@ -32,11 +33,24 @@ The existing Compose installer and assets remain unchanged.
 3. Deploy:
 
    ```bash
+   # Use this simple command only for non-sensitive test environments.
    aws cloudformation deploy \
      --template-file bundle/ecs/opsrabbit-ecs-fargate.yaml \
      --stack-name opsrabbit-ecs \
      --capabilities CAPABILITY_NAMED_IAM \
      --parameter-overrides $(cat bundle/ecs/opsrabbit-ecs.template.env | xargs)
+   ```
+
+   For production, avoid passing secrets in command arguments. Instead copy and edit the JSON example and pass it via `--parameters`:
+
+   ```bash
+   cp bundle/ecs/opsrabbit-ecs.parameters.example.json bundle/ecs/opsrabbit-ecs.parameters.json
+
+   aws cloudformation create-stack \
+     --stack-name opsrabbit-ecs \
+     --template-body file://bundle/ecs/opsrabbit-ecs-fargate.yaml \
+     --capabilities CAPABILITY_NAMED_IAM \
+     --parameters file://bundle/ecs/opsrabbit-ecs.parameters.json
    ```
 
 4. Open the ALB DNS name from stack outputs and set `OPSRABBIT_WEB_ORIGIN` to that URL.
@@ -46,5 +60,7 @@ The existing Compose installer and assets remain unchanged.
 - This is a reference template. You should wire Secrets Manager or SSM for secrets in production.
 - Data-only volumes for `/home/opsbot/.opsrabbit` and `/home/opsbot/.agent-browser` are currently
   ephemeral in this starter. For durability, add EFS and mount points in your own fork.
+- Outbound ECS task egress is broad in this starter template (`1024-65535` to `0.0.0.0/0`). Tighten it for production
+  to only required destinations (ECR, DB, and required AWS endpoints).
 - Post-deploy validation is the same: backend at `/health`, web at `/`.
 - Compose install script, `install.sh`, and existing `.env` conventions are untouched.
