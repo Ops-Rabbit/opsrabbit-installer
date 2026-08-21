@@ -53,6 +53,29 @@ Parameters:
   WEB_HTTP_PORT:
     Type: Number
     Default: 80
+  UseHttps:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: "Set to true to create HTTPS listener on 443 and redirect HTTP to HTTPS."
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: "Required when UseHttps=true. ACM certificate ARN in us-east-1."
+  DatabaseSecurityGroupId:
+    Type: String
+    Default: ""
+    Description: "Optional RDS/DB security group id for restricted egress to Postgres on 5432."
+  AllowedEgressCidr:
+    Type: String
+    Default: "0.0.0.0/0"
+    Description: "CIDR to allow outbound HTTPS (443) traffic for external services. Narrow this in production."
+
+Conditions:
+  EnableHttps: !Equals [!Ref UseHttps, "true"]
+  HasDbSecurityGroup: !Not [!Equals [!Ref DatabaseSecurityGroupId, ""]]
 
 Resources:
   OpsRabbitCluster:
@@ -175,9 +198,19 @@ Resources:
           SourceSecurityGroupId: !Ref OpsRabbitALBSecurityGroup
       SecurityGroupEgress:
         - IpProtocol: tcp
-          FromPort: 1024
-          ToPort: 65535
-          CidrIp: 0.0.0.0/0
+          FromPort: 443
+          ToPort: 443
+          CidrIp: !Ref AllowedEgressCidr
+
+  OpsRabbitServiceDbEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: HasDbSecurityGroup
+    Properties:
+      GroupId: !Ref OpsRabbitServiceSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      DestinationSecurityGroupId: !Ref DatabaseSecurityGroupId
 
   OpsRabbitTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
@@ -205,12 +238,36 @@ Resources:
   OpsRabbitAlbListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
+      LoadBalancerArn: !Ref OpsRabbitAlb
+      Port: !Ref WEB_HTTP_PORT
+      Protocol: HTTP
+      DefaultActions: !If
+        - EnableHttps
+        -
+          - Type: redirect
+            RedirectConfig:
+              Protocol: HTTPS
+              Port: "443"
+              Host: "#{host}"
+              Path: /#{path}
+              Query: "#{query}"
+              StatusCode: HTTP_301
+        -
+          - Type: forward
+            TargetGroupArn: !Ref OpsRabbitTargetGroup
+
+  OpsRabbitAlbHttpsListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Condition: EnableHttps
+    Properties:
       DefaultActions:
         - Type: forward
           TargetGroupArn: !Ref OpsRabbitTargetGroup
       LoadBalancerArn: !Ref OpsRabbitAlb
-      Port: !Ref WEB_HTTP_PORT
-      Protocol: HTTP
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref CertificateArn
 
   OpsRabbitService:
     Type: AWS::ECS::Service
@@ -238,5 +295,8 @@ Outputs:
     Value: !Ref OpsRabbitService
   WebUrl:
     Description: "HTTP URL of the OpsRabbit service"
-    Value: !Sub "http://${OpsRabbitAlb.DNSName}"
+    Value: !If
+      - EnableHttps
+      - !Sub "https://${OpsRabbitAlb.DNSName}"
+      - !Sub "http://${OpsRabbitAlb.DNSName}"
 *** End Patch

@@ -21,6 +21,11 @@ The existing Compose installer and assets remain unchanged.
    - `OPSRABBIT_NODE_ENCRYPTION_KEY`
    - `OPSRABBIT_WEB_ORIGIN`
    - `OPSRABBIT_NODE_BASE_URL`
+   - Optional production hardening params:
+     - `UseHttps` (`true|false`)
+     - `CertificateArn` (required when `UseHttps=true`)
+     - `AllowedEgressCidr` (default `0.0.0.0/0`)
+     - `DatabaseSecurityGroupId` (optional DB SG for egress on 5432)
 
 2. Create required AWS resources:
 
@@ -53,6 +58,12 @@ The existing Compose installer and assets remain unchanged.
      --parameters file://bundle/ecs/opsrabbit-ecs.parameters.json
    ```
 
+   To expose HTTPS:
+
+   - Set `UseHttps=true`
+   - Set `CertificateArn` to an ACM certificate ARN in the same region as the stack
+   - Ensure `OPSRABBIT_WEB_ORIGIN` and `OPSRABBIT_NODE_BASE_URL` use `https://...`
+
 4. Open the ALB DNS name from stack outputs and set `OPSRABBIT_WEB_ORIGIN` to that URL.
 
 ## Important notes
@@ -62,5 +73,7 @@ The existing Compose installer and assets remain unchanged.
   ephemeral in this starter. For durability, add EFS and mount points in your own fork.
 - Outbound ECS task egress is broad in this starter template (`1024-65535` to `0.0.0.0/0`). Tighten it for production
   to only required destinations (ECR, DB, and required AWS endpoints).
+- In this version, outbound HTTPS egress is limited via `AllowedEgressCidr` (default `0.0.0.0/0`) and DB egress can be narrowed by
+  setting `DatabaseSecurityGroupId`.
 - Post-deploy validation is the same: backend at `/health`, web at `/`.
 - Compose install script, `install.sh`, and existing `.env` conventions are untouched.

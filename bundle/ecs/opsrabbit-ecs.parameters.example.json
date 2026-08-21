@@ -26,6 +26,10 @@
   { "ParameterKey": "OPSRABBIT_NODE_ENCRYPTION_KEY", "ParameterValue": "change-me" },
   { "ParameterKey": "OPSRABBIT_WEB_ORIGIN", "ParameterValue": "https://opsrabbit.example.com" },
   { "ParameterKey": "OPSRABBIT_NODE_BASE_URL", "ParameterValue": "https://opsrabbit.example.com/api" },
+  { "ParameterKey": "UseHttps", "ParameterValue": "false" },
+  { "ParameterKey": "CertificateArn", "ParameterValue": "" },
+  { "ParameterKey": "DatabaseSecurityGroupId", "ParameterValue": "" },
+  { "ParameterKey": "AllowedEgressCidr", "ParameterValue": "0.0.0.0/0" },
   { "ParameterKey": "OPSRABBIT_BACKEND_PORT", "ParameterValue": "8384" },
   { "ParameterKey": "WEB_HTTP_PORT", "ParameterValue": "80" }
 ]
