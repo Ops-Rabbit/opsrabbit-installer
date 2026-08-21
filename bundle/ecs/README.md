@@ -24,6 +24,7 @@ The existing Compose installer and assets remain unchanged.
    - Optional production hardening params:
      - `UseHttps` (`true|false`)
      - `CertificateArn` (required when `UseHttps=true`)
+     - `DatabaseCidr` (alternate to DatabaseSecurityGroupId for DB egress rule)
      - `AllowedEgressCidr` (default `0.0.0.0/0`)
      - `DatabaseSecurityGroupId` (optional DB SG for egress on 5432)
 
@@ -61,8 +62,20 @@ The existing Compose installer and assets remain unchanged.
    To expose HTTPS:
 
    - Set `UseHttps=true`
-   - Set `CertificateArn` to an ACM certificate ARN in the same region as the stack
+   - In ACM (same AWS region as the stack), request or import a public cert for your public domain:
+     ```bash
+     aws acm request-certificate \
+       --domain-name opsrabbit.example.com \
+       --validation-method DNS \
+       --region <stack-region> \
+       --idempotency-token opsrabbit-ecs
+     ```
+   - Add the ACM DNS validation records to your hosted zone (or use the Route 53 validation workflow in console), then wait for status `ISSUED`.
+   - Set `CertificateArn` to that certificate ARN.
    - Ensure `OPSRABBIT_WEB_ORIGIN` and `OPSRABBIT_NODE_BASE_URL` use `https://...`
+   - For production, keep `UseHttps=true` and keep ALB-only ingress on 443/80 as needed.
+   - `opsrabbit-ecs-fargate.yaml` does not create or validate certificates.
+     `CertificateArn` must be supplied by your pre-provisioning pipeline.
 
 4. Open the ALB DNS name from stack outputs and set `OPSRABBIT_WEB_ORIGIN` to that URL.
 
@@ -71,9 +84,7 @@ The existing Compose installer and assets remain unchanged.
 - This is a reference template. You should wire Secrets Manager or SSM for secrets in production.
 - Data-only volumes for `/home/opsbot/.opsrabbit` and `/home/opsbot/.agent-browser` are currently
   ephemeral in this starter. For durability, add EFS and mount points in your own fork.
-- Outbound ECS task egress is broad in this starter template (`1024-65535` to `0.0.0.0/0`). Tighten it for production
-  to only required destinations (ECR, DB, and required AWS endpoints).
 - In this version, outbound HTTPS egress is limited via `AllowedEgressCidr` (default `0.0.0.0/0`) and DB egress can be narrowed by
-  setting `DatabaseSecurityGroupId`.
+  setting either `DatabaseSecurityGroupId` (preferred) or `DatabaseCidr`.
 - Post-deploy validation is the same: backend at `/health`, web at `/`.
 - Compose install script, `install.sh`, and existing `.env` conventions are untouched.

@@ -63,11 +63,15 @@ Parameters:
   CertificateArn:
     Type: String
     Default: ""
-    Description: "Required when UseHttps=true. ACM certificate ARN in us-east-1."
+    Description: "Required when UseHttps=true. ACM certificate ARN in the same region as this stack."
   DatabaseSecurityGroupId:
     Type: String
     Default: ""
     Description: "Optional RDS/DB security group id for restricted egress to Postgres on 5432."
+  DatabaseCidr:
+    Type: String
+    Default: ""
+    Description: "Optional CIDR for DB egress (alternative to DatabaseSecurityGroupId)."
   AllowedEgressCidr:
     Type: String
     Default: "0.0.0.0/0"
@@ -76,6 +80,7 @@ Parameters:
 Conditions:
   EnableHttps: !Equals [!Ref UseHttps, "true"]
   HasDbSecurityGroup: !Not [!Equals [!Ref DatabaseSecurityGroupId, ""]]
+  HasDbCidr: !Not [!Equals [!Ref DatabaseCidr, ""]]
 
 Resources:
   OpsRabbitCluster:
@@ -211,6 +216,16 @@ Resources:
       FromPort: 5432
       ToPort: 5432
       DestinationSecurityGroupId: !Ref DatabaseSecurityGroupId
+
+  OpsRabbitServiceDbCidrEgress:
+    Type: AWS::EC2::SecurityGroupEgress
+    Condition: HasDbCidr
+    Properties:
+      GroupId: !Ref OpsRabbitServiceSecurityGroup
+      IpProtocol: tcp
+      FromPort: 5432
+      ToPort: 5432
+      CidrIp: !Ref DatabaseCidr
 
   OpsRabbitTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup

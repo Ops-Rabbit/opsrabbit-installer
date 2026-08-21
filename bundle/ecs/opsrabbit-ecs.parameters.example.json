@@ -29,6 +29,7 @@
   { "ParameterKey": "UseHttps", "ParameterValue": "false" },
   { "ParameterKey": "CertificateArn", "ParameterValue": "" },
   { "ParameterKey": "DatabaseSecurityGroupId", "ParameterValue": "" },
+  { "ParameterKey": "DatabaseCidr", "ParameterValue": "" },
   { "ParameterKey": "AllowedEgressCidr", "ParameterValue": "0.0.0.0/0" },
   { "ParameterKey": "OPSRABBIT_BACKEND_PORT", "ParameterValue": "8384" },
   { "ParameterKey": "WEB_HTTP_PORT", "ParameterValue": "80" }
