@@ -20,6 +20,8 @@ jobs:
         run: |
           mkdir -p release/assets release/opsrabbit-aws-image-bundle
           cp bundle/install.sh bundle/opsrabbitctl bundle/docker-compose.yml bundle/README.md release/opsrabbit-aws-image-bundle/
+          mkdir -p release/opsrabbit-aws-image-bundle/bundle-ecs
+          cp -R bundle/ecs/* release/opsrabbit-aws-image-bundle/bundle-ecs/
           cp install.sh release/assets/install.sh
           sed -i "s/^default_version=.*/default_version=\"${GITHUB_REF_NAME}\"/" release/assets/install.sh
           grep -F "default_version=\"${GITHUB_REF_NAME}\"" release/assets/install.sh

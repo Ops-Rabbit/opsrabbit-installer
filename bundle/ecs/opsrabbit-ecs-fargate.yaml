@@ -1,0 +1,241 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: "OpsRabbit ECS Fargate reference stack (starter). Uses image-only container paths."
+
+Parameters:
+  StackName:
+    Type: String
+    Default: opsrabbit-ecs
+  ClusterName:
+    Type: String
+    Default: opsrabbit-cluster
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+  PublicSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  PrivateSubnets:
+    Type: List<AWS::EC2::Subnet::Id>
+  ExecutionRoleArn:
+    Type: String
+  TaskRoleArn:
+    Type: String
+  ALBName:
+    Type: String
+    Default: opsrabbit-alb
+  DesiredCount:
+    Type: Number
+    Default: 1
+  Cpu:
+    Type: Number
+    Default: 512
+  Memory:
+    Type: Number
+    Default: 2048
+  OPSRABBIT_DAEMON_IMAGE:
+    Type: String
+  OPSRABBIT_WEB_IMAGE:
+    Type: String
+  OPSRABBIT_NODE_DATABASE_URL:
+    Type: String
+  BETTER_AUTH_SECRET:
+    Type: String
+    NoEcho: true
+  OPSRABBIT_NODE_ENCRYPTION_KEY:
+    Type: String
+    NoEcho: true
+  OPSRABBIT_WEB_ORIGIN:
+    Type: String
+  OPSRABBIT_NODE_BASE_URL:
+    Type: String
+  OPSRABBIT_BACKEND_PORT:
+    Type: Number
+    Default: 8384
+  WEB_HTTP_PORT:
+    Type: Number
+    Default: 80
+
+Resources:
+  OpsRabbitCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ClusterName
+
+  OpsRabbitLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${StackName}/daemon"
+      RetentionInDays: 14
+
+  OpsRabbitWebLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${StackName}/web"
+      RetentionInDays: 14
+
+  OpsRabbitTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub "${StackName}-task"
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - FARGATE
+      Cpu: !Ref Cpu
+      Memory: !Ref Memory
+      ExecutionRoleArn: !Ref ExecutionRoleArn
+      TaskRoleArn: !Ref TaskRoleArn
+      ContainerDefinitions:
+        - Name: daemon
+          Image: !Ref OPSRABBIT_DAEMON_IMAGE
+          Essential: true
+          StopTimeout: 135
+          Environment:
+            - Name: OPSRABBIT_NODE_HOST
+              Value: "0.0.0.0"
+            - Name: OPSRABBIT_NODE_PORT
+              Value: !Ref OPSRABBIT_BACKEND_PORT
+            - Name: OPSRABBIT_NODE_DATABASE_URL
+              Value: !Ref OPSRABBIT_NODE_DATABASE_URL
+            - Name: BETTER_AUTH_SECRET
+              Value: !Ref BETTER_AUTH_SECRET
+            - Name: OPSRABBIT_NODE_ENCRYPTION_KEY
+              Value: !Ref OPSRABBIT_NODE_ENCRYPTION_KEY
+            - Name: OPSRABBIT_WEB_ORIGIN
+              Value: !Ref OPSRABBIT_WEB_ORIGIN
+            - Name: OPSRABBIT_NODE_BASE_URL
+              Value: !Ref OPSRABBIT_NODE_BASE_URL
+          PortMappings:
+            - ContainerPort: !Ref OPSRABBIT_BACKEND_PORT
+              Protocol: tcp
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - !Sub "curl -fsS http://127.0.0.1:${OPSRABBIT_BACKEND_PORT}/health"
+            Interval: 30
+            Timeout: 10
+            Retries: 3
+            StartPeriod: 30
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref OpsRabbitLogGroup
+              awslogs-region: !Sub "${AWS::Region}"
+              awslogs-stream-prefix: daemon
+        - Name: web
+          Image: !Ref OPSRABBIT_WEB_IMAGE
+          Essential: true
+          DependsOn:
+            - Condition: HEALTHY
+              ContainerName: daemon
+          Environment:
+            - Name: VITE_API_URL
+              Value: /api
+            - Name: WEB_API_UPSTREAM
+              Value: !Sub "http://127.0.0.1:${OPSRABBIT_BACKEND_PORT}"
+            - Name: WEB_TLS_MODE
+              Value: http
+          PortMappings:
+            - ContainerPort: !Ref WEB_HTTP_PORT
+              HostPort: !Ref WEB_HTTP_PORT
+              Protocol: tcp
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - "wget --spider --quiet http://127.0.0.1/"
+            Interval: 30
+            Timeout: 5
+            Retries: 5
+            StartPeriod: 10
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref OpsRabbitWebLogGroup
+              awslogs-region: !Sub "${AWS::Region}"
+              awslogs-stream-prefix: web
+
+  OpsRabbitALBSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow ALB ingress for OpsRabbit web
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref WEB_HTTP_PORT
+          ToPort: !Ref WEB_HTTP_PORT
+          CidrIp: 0.0.0.0/0
+
+  OpsRabbitServiceSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Allow web traffic to web and internal backend call path
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: !Ref WEB_HTTP_PORT
+          ToPort: !Ref WEB_HTTP_PORT
+          SourceSecurityGroupId: !Ref OpsRabbitALBSecurityGroup
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 1024
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+
+  OpsRabbitTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: !Sub "${StackName}-web"
+      Port: !Ref WEB_HTTP_PORT
+      Protocol: HTTP
+      VpcId: !Ref VpcId
+      TargetType: ip
+      HealthCheckPath: /
+      Matcher:
+        HttpCode: 200
+
+  OpsRabbitAlb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: !Ref ALBName
+      Scheme: internet-facing
+      Type: application
+      Subnets: !Ref PublicSubnets
+      SecurityGroups:
+        - !Ref OpsRabbitALBSecurityGroup
+      IpAddressType: ipv4
+
+  OpsRabbitAlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref OpsRabbitTargetGroup
+      LoadBalancerArn: !Ref OpsRabbitAlb
+      Port: !Ref WEB_HTTP_PORT
+      Protocol: HTTP
+
+  OpsRabbitService:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref OpsRabbitCluster
+      ServiceName: !Sub "${StackName}-service"
+      TaskDefinition: !Ref OpsRabbitTaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      LoadBalancers:
+        - ContainerName: web
+          ContainerPort: !Ref WEB_HTTP_PORT
+          TargetGroupArn: !Ref OpsRabbitTargetGroup
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: DISABLED
+          SecurityGroups:
+            - !Ref OpsRabbitServiceSecurityGroup
+          Subnets: !Ref PrivateSubnets
+
+Outputs:
+  ClusterName:
+    Value: !Ref ClusterName
+  ServiceName:
+    Value: !Ref OpsRabbitService
+  WebUrl:
+    Description: "HTTP URL of the OpsRabbit service"
+    Value: !Sub "http://${OpsRabbitAlb.DNSName}"
+*** End Patch

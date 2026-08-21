@@ -66,6 +66,17 @@ Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRA
 
 It then installs missing prerequisites, installs the official architecture-specific AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application secrets, logs in to ECR, pulls the images, starts the services, and checks backend and web health.
 
+## ECS-based deployment option
+
+The release archive also includes `bundle-ecs/` with a starter ECS Fargate template and environment example:
+
+- `bundle-ecs/opsrabbit-ecs-fargate.yaml` (CloudFormation)
+- `bundle-ecs/opsrabbit-ecs.template.env`
+
+These artifacts are provided so AWS Marketplace can expose both deployment paths (Compose and ECS). Compose install flow remains unchanged and is still the default path for this installer.
+
+See `bundle-ecs/README.md` for deployment steps and implementation notes.
+
 Use immutable image tags or digests for production rather than `latest`.
 
 ## AWS authentication
