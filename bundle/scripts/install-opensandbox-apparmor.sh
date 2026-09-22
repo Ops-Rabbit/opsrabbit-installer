@@ -10,6 +10,7 @@ readonly PROFILE_NAME="opsrabbit-opensandbox-bwrap"
 readonly SOURCE_PROFILE="$PROJECT_ROOT/deploy/apparmor/$PROFILE_NAME"
 readonly TARGET_PROFILE="/etc/apparmor.d/$PROFILE_NAME"
 readonly SYSTEM_PROFILE="/etc/apparmor.d/bwrap-userns-restrict"
+readonly DISABLED_SYSTEM_PROFILE="/etc/apparmor.d/disable/bwrap-userns-restrict"
 readonly LOADED_PROFILES="/sys/kernel/security/apparmor/profiles"
 TARGET_DIR="$(dirname "$TARGET_PROFILE")"
 readonly TARGET_DIR
@@ -66,6 +67,11 @@ if [[ -r "$SYSTEM_PROFILE" ]]; then
   # Prefer a distribution-provided Bubblewrap user-namespace profile. Loading
   # our fallback beside it creates two attachments for /usr/bin/bwrap, so
   # remove only our known legacy copy before reloading the system profile.
+  if [[ -e "$DISABLED_SYSTEM_PROFILE" || -L "$DISABLED_SYSTEM_PROFILE" ]]; then
+    echo "The operating system Bubblewrap AppArmor profile is disabled at $DISABLED_SYSTEM_PROFILE; host policy was not changed." >&2
+    exit 1
+  fi
+
   apparmor_parser -Q "$SYSTEM_PROFILE"
 
   if [[ -e "$TARGET_PROFILE" ]] && ! cmp -s "$SOURCE_PROFILE" "$TARGET_PROFILE"; then
