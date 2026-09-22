@@ -16,7 +16,7 @@ To install another version, replace `v1.3.1` in the URL with the required releas
 
 ## Requirements
 
-- Ubuntu Server 24.04 LTS or 26.04 LTS, or a Debian server
+- Ubuntu Server 24.04 LTS or 26.04 LTS, or Debian 13
 - x86-64 CPU architecture
 - `root` or passwordless `sudo` for the initial installation
 - Network access to the configured Amazon ECR registry and public container registries
@@ -65,7 +65,7 @@ The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us
 
 Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRABBIT_INSTALL_DIR`, `OPSRABBIT_AWS_REGION`, `OPSRABBIT_ECR_REGISTRY`, `OPSRABBIT_DAEMON_IMAGE`, `OPSRABBIT_WEB_IMAGE`, `OPSRABBIT_SANDBOX_IMAGE`, `OPENSANDBOX_PORT`, or `OPSRABBIT_WEB_PORT`.
 
-It then installs missing prerequisites, installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it uses Ubuntu's packaged Bubblewrap profile when available and otherwise atomically installs the bundled compatibility profile. It does not disable the host-wide restriction or require a reboot. This also removes an unchanged conflicting fallback left by installer `v1.3.0` on Ubuntu 26.04.
+It configures Docker's official stable apt repository and installs or upgrades Docker Engine, Buildx, and Compose to that repository's latest candidate. When migrating from distribution-provided Docker packages, their removal can briefly interrupt running containers, but Docker data in `/var/lib/docker` is preserved. It also installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it uses Ubuntu's packaged Bubblewrap profile when available and otherwise atomically installs the bundled compatibility profile. It does not disable the host-wide restriction or require a reboot. This also removes an unchanged conflicting fallback left by installer `v1.3.0` on Ubuntu 26.04.
 
 Use immutable image tags or digests for production rather than `latest`.
 

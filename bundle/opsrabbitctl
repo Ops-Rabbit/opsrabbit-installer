@@ -61,6 +61,35 @@ ecr_login() {
   echo "ECR login succeeded using a temporary Docker credential file."
 }
 
+connect_opensandbox_runtime_bridge() {
+  local container_id bridge_status
+
+  container_id="$("${compose[@]}" ps -q opensandbox-server)"
+  if [[ -z "${container_id}" ]]; then
+    echo "OpenSandbox lifecycle container was not created." >&2
+    return 1
+  fi
+
+  bridge_status="$(docker inspect --format '{{with index .NetworkSettings.Networks "bridge"}}connected{{end}}' "${container_id}")"
+  if [[ "${bridge_status}" != "connected" ]]; then
+    docker network connect bridge "${container_id}"
+  fi
+}
+
+start_services() {
+  local remove_orphans=()
+  if [[ "${1:-}" == "remove-orphans" ]]; then
+    remove_orphans=(--remove-orphans)
+  fi
+
+  # OpenSandbox creates sandboxes on Docker's built-in bridge because its
+  # deny-all network policy is implemented there. Join only the lifecycle
+  # service to that bridge before the backend can send sandbox traffic.
+  "${compose[@]}" up -d --no-build "${remove_orphans[@]}" opensandbox-server
+  connect_opensandbox_runtime_bridge
+  "${compose[@]}" up -d --no-build "${remove_orphans[@]}" --wait
+}
+
 case "${1:-}" in
   login)
     ecr_login
@@ -71,11 +100,11 @@ case "${1:-}" in
     "${compose[@]}" pull
     # Keep OpenSandbox available while the backend retires its managed sandboxes.
     "${compose[@]}" stop daemon
-    "${compose[@]}" up -d --no-build --remove-orphans --wait
+    start_services remove-orphans
     "${compose[@]}" ps
     ;;
   start)
-    "${compose[@]}" up -d --no-build --wait
+    start_services
     ;;
   stop)
     "${compose[@]}" stop daemon

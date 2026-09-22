@@ -107,7 +107,7 @@ install_aws_cli() {
 }
 
 echo "OpsRabbit image-only AWS deployment installer"
-echo "This installs Docker/AWS CLI packages when missing, OpenSandbox, and a Docker-enabled deployment user."
+echo "This installs the latest stable Docker Engine from Docker's official repository, AWS CLI when missing, OpenSandbox, and a Docker-enabled deployment user."
 echo
 echo "[Installer 1/4] Reviewing deployment settings..."
 
@@ -156,6 +156,7 @@ echo "  Backend: ${daemon_image}"
 echo "  Web: ${web_image}"
 echo "  Sandbox: ${sandbox_image}"
 echo "  OpenSandbox port: 127.0.0.1:${opensandbox_port}"
+echo "  Docker: latest stable Engine, Buildx, and Compose from Docker's official apt repository"
 if [[ "${restricted_userns}" == true ]]; then
   echo "  AppArmor: configure Bubblewrap compatibility for restricted user namespaces"
 else
@@ -176,16 +177,7 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl openssl u
 if [[ "${restricted_userns}" == true ]] && ! command -v apparmor_parser >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y apparmor
 fi
-if ! command -v docker >/dev/null 2>&1; then
-  DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
-fi
-if ! docker compose version >/dev/null 2>&1; then
-  if ! DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-v2; then
-    DEBIAN_FRONTEND=noninteractive apt-get install -y docker-compose-plugin
-  fi
-fi
-systemctl enable --now docker
-docker compose version >/dev/null
+"${script_dir}/scripts/install-docker.sh"
 install_aws_cli
 
 echo "[Installer 3/4] Creating the deployment user and persistent configuration..."
