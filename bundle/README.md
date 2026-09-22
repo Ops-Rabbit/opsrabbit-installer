@@ -4,7 +4,7 @@ This bundle deploys the core OpsRabbit stack and its OpenSandbox lifecycle servi
 
 ## Requirements
 
-- Debian or Ubuntu server
+- Ubuntu Server 24.04 LTS or 26.04 LTS, or a Debian server
 - x86-64 CPU architecture
 - `root` or passwordless `sudo` for the initial installation
 - Network access to the configured Amazon ECR registry and public container registries
@@ -53,7 +53,7 @@ The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us
 
 Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRABBIT_INSTALL_DIR`, `OPSRABBIT_AWS_REGION`, `OPSRABBIT_ECR_REGISTRY`, `OPSRABBIT_DAEMON_IMAGE`, `OPSRABBIT_WEB_IMAGE`, `OPSRABBIT_SANDBOX_IMAGE`, `OPENSANDBOX_PORT`, or `OPSRABBIT_WEB_PORT`.
 
-It then installs missing prerequisites, installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it validates and atomically installs the scoped Bubblewrap AppArmor compatibility profile without disabling the host-wide restriction or requiring a reboot.
+It then installs missing prerequisites, installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it uses Ubuntu's packaged Bubblewrap profile when available and otherwise atomically installs the bundled compatibility profile. It does not disable the host-wide restriction or require a reboot. This also removes an unchanged conflicting fallback left by installer `v1.3.0` on Ubuntu 26.04.
 
 Use immutable image tags or digests for production rather than `latest`.
 
@@ -104,7 +104,7 @@ Use session or agent scope, keep worker splitting disabled, and use the workspac
 - Membership in the Docker group is effectively root access.
 - The daemon mounts the Docker socket because existing admin-only plugin lifecycle features manage sibling containers. Protect OpsRabbit admin access accordingly.
 - The OpenSandbox server also mounts the Docker socket and is host-adjacent infrastructure. Its lifecycle API binds only to loopback, while dynamically created sandbox ports use the host range `40000-41000`. Deny that range from untrusted networks with the cloud firewall/security group and Docker-aware forwarding policy before enabling sandbox execution.
-- The Bubblewrap AppArmor profile is installed only when `kernel.apparmor_restrict_unprivileged_userns=1`. It leaves that restriction enabled and applies to every `/usr/bin/bwrap` caller on the host. Validate other local Bubblewrap workloads on a shared host.
+- Bubblewrap AppArmor compatibility is configured only when `kernel.apparmor_restrict_unprivileged_userns=1`. An operating-system profile is preferred when available, as it is on Ubuntu 26.04; hosts without one receive the bundled fallback. The restriction remains enabled, and the selected profile applies to every `/usr/bin/bwrap` caller on the host. Validate other local Bubblewrap workloads on a shared host.
 - The included Compose file serves HTTP. Terminate production TLS at a reverse proxy or load balancer and set the public origin to its HTTPS URL.
 - Keep SSH key-only, restrict administration sources, and do not expose ports 54329 or 8384 publicly.
 

@@ -157,7 +157,7 @@ echo "  Web: ${web_image}"
 echo "  Sandbox: ${sandbox_image}"
 echo "  OpenSandbox port: 127.0.0.1:${opensandbox_port}"
 if [[ "${restricted_userns}" == true ]]; then
-  echo "  AppArmor: install the scoped Bubblewrap compatibility profile"
+  echo "  AppArmor: configure Bubblewrap compatibility for restricted user namespaces"
 else
   echo "  AppArmor: compatibility profile not required by this host"
 fi
