@@ -4,15 +4,15 @@ This bundle deploys the core OpsRabbit stack and its OpenSandbox lifecycle servi
 
 ## Quick install
 
-Install the tagged `v1.3.0` release on a Debian or Ubuntu host:
+Install the tagged `v1.3.1` release on a Debian or Ubuntu host:
 
 ```bash
-curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.3.0/install.sh | sudo bash
+curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.3.1/install.sh | sudo bash
 ```
 
-This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.3.0` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
+This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.3.1` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
 
-To install another version, replace `v1.3.0` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
+To install another version, replace `v1.3.1` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
 
 ## Requirements
 
@@ -125,3 +125,7 @@ The installer preserves an existing `.env` so that application secrets are not r
 ```bash
 opsrabbitctl update
 ```
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
