@@ -28,6 +28,7 @@ jobs:
           tar -C release -czf opsrabbit-aws-image-bundle.tar.gz opsrabbit-aws-image-bundle
           tar -tzf opsrabbit-aws-image-bundle.tar.gz | tee archive-contents.txt
           grep -Fx 'opsrabbit-aws-image-bundle/opensandbox-config.toml' archive-contents.txt
+          grep -Fx 'opsrabbit-aws-image-bundle/scripts/install-docker.sh' archive-contents.txt
           grep -Fx 'opsrabbit-aws-image-bundle/scripts/install-opensandbox-apparmor.sh' archive-contents.txt
           grep -Fx 'opsrabbit-aws-image-bundle/deploy/apparmor/opsrabbit-opensandbox-bwrap' archive-contents.txt
           sha256sum opsrabbit-aws-image-bundle.tar.gz > opsrabbit-aws-image-bundle.tar.gz.sha256

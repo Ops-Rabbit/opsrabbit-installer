@@ -38,6 +38,9 @@ if [[ "${1:-}" == "login" ]]; then
   exit 0
 fi
 printf '%s|%s|%s\n' "${PWD}" "${DOCKER_CONFIG:-}" "$*" >> "${OPSRABBIT_TEST_COMMAND_LOG}"
+if [[ "$*" == *"compose "*" ps -q opensandbox-server" ]]; then
+  echo "opensandbox-test-container"
+fi
 EOF
 chmod +x "${stub_bin}/aws" "${stub_bin}/docker"
 
@@ -78,18 +81,21 @@ fi
 grep -Fq "|pull 123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:test" "${command_log}"
 grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml pull" "${command_log}"
 grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml stop daemon" "${command_log}"
+grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --remove-orphans opensandbox-server" "${command_log}"
+grep -Fq "|network connect bridge opensandbox-test-container" "${command_log}"
 grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --remove-orphans --wait" "${command_log}"
 
 pull_line="$(grep -nF "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml pull" "${command_log}" | cut -d: -f1)"
 daemon_stop_line="$(grep -nF "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml stop daemon" "${command_log}" | cut -d: -f1)"
+bridge_connect_line="$(grep -nF "|network connect bridge opensandbox-test-container" "${command_log}" | cut -d: -f1)"
 up_line="$(grep -nF "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --remove-orphans --wait" "${command_log}" | cut -d: -f1)"
-[[ "${pull_line}" -lt "${daemon_stop_line}" && "${daemon_stop_line}" -lt "${up_line}" ]]
+[[ "${pull_line}" -lt "${daemon_stop_line}" && "${daemon_stop_line}" -lt "${bridge_connect_line}" && "${bridge_connect_line}" -lt "${up_line}" ]]
 
 while IFS='|' read -r command_pwd docker_config command_args; do
   [[ "${command_pwd}" == "${deploy_dir}" ]]
   [[ "${docker_config}" == /tmp/* || "${docker_config}" == /var/* || "${docker_config}" == "${test_root}"/* ]]
   [[ ! -e "${docker_config}" ]]
-  [[ "${command_args}" == compose* || "${command_args}" == pull* ]]
+  [[ "${command_args}" == compose* || "${command_args}" == pull* || "${command_args}" == inspect* || "${command_args}" == network* ]]
 done < "${command_log}"
 
 : > "${command_log}"
