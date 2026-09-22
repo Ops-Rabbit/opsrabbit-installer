@@ -29,6 +29,9 @@ aws_region="$(read_env AWS_REGION)"
 ecr_registry="$(read_env ECR_REGISTRY)"
 backend_port="$(read_env OPSRABBIT_BACKEND_PORT)"
 web_port="$(read_env WEB_HTTP_PORT)"
+sandbox_image="$(read_env OPSRABBIT_SANDBOX_IMAGE)"
+opensandbox_port="$(read_env OPENSANDBOX_PORT)"
+opensandbox_api_key="$(read_env OPENSANDBOX_SERVER_API_KEY)"
 
 compose=(docker compose --env-file "${env_file}" -f "${compose_file}")
 docker_config_dir=""
@@ -64,7 +67,10 @@ case "${1:-}" in
     ;;
   deploy|update)
     ecr_login
+    docker pull "${sandbox_image}"
     "${compose[@]}" pull
+    # Keep OpenSandbox available while the backend retires its managed sandboxes.
+    "${compose[@]}" stop daemon
     "${compose[@]}" up -d --no-build --remove-orphans --wait
     "${compose[@]}" ps
     ;;
@@ -72,9 +78,11 @@ case "${1:-}" in
     "${compose[@]}" up -d --no-build --wait
     ;;
   stop)
+    "${compose[@]}" stop daemon
     "${compose[@]}" stop
     ;;
   restart)
+    "${compose[@]}" stop daemon
     "${compose[@]}" restart
     ;;
   status)
@@ -88,6 +96,20 @@ case "${1:-}" in
     echo
     curl --fail --show-error --silent --output /dev/null "http://127.0.0.1:${web_port}/"
     echo "Web health check passed."
+    curl --fail --show-error --silent --output /dev/null "http://127.0.0.1:${opensandbox_port}/health"
+    unauthenticated_status="$(
+      curl --silent --output /dev/null --write-out '%{http_code}' \
+        "http://127.0.0.1:${opensandbox_port}/v1/sandboxes"
+    )"
+    if [[ "${unauthenticated_status}" != "401" ]]; then
+      echo "OpenSandbox lifecycle API accepted an unauthenticated request (HTTP ${unauthenticated_status})." >&2
+      exit 1
+    fi
+    printf 'OPEN-SANDBOX-API-KEY: %s\n' "${opensandbox_api_key}" \
+      | curl --fail --show-error --silent --output /dev/null --header @- \
+        "http://127.0.0.1:${opensandbox_port}/v1/sandboxes"
+    docker image inspect "${sandbox_image}" >/dev/null
+    echo "OpenSandbox health, authentication, and sandbox image checks passed."
     ;;
   *)
     echo "Usage: opsrabbitctl {login|deploy|update|start|stop|restart|status|logs [service]|health}" >&2

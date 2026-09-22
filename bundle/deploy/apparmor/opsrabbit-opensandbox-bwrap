@@ -1,0 +1,53 @@
+# Allow Bubblewrap to construct the user namespace required by OpsRabbit's
+# OpenSandbox workspace-only filesystem view without passing its namespace
+# setup capabilities to the command it launches.
+#
+# This is the AppArmor 4.0.1 upstream bwrap-userns-restrict design with unique
+# OpsRabbit profile names. Bubblewrap needs broad setup permissions, but every
+# payload is stacked with the capability-denying child profile so /usr/bin/bwrap
+# cannot be used as a trampoline around the host's user-namespace restriction.
+
+abi <abi/4.0>,
+include <tunables/global>
+
+profile opsrabbit-opensandbox-bwrap /usr/bin/bwrap flags=(attach_disconnected) {
+  allow capability,
+
+  # Keep this explicit rather than using "allow all" so the payload transition
+  # remains enforceable on AppArmor 4.0.
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+
+  # Bubblewrap uses no-new-privileges, so stack its payload with the restricted
+  # child profile instead of attempting a privilege-increasing transition.
+  allow px /** -> opsrabbit-opensandbox-bwrap//&opsrabbit-opensandbox-bwrap-unpriv,
+}
+
+profile opsrabbit-opensandbox-bwrap-unpriv flags=(attach_disconnected) {
+  allow file rwlkm /{**,},
+  allow network,
+  allow unix,
+  allow ptrace,
+  allow signal,
+  allow mqueue,
+  allow io_uring,
+  allow userns,
+  allow mount,
+  allow umount,
+  allow pivot_root,
+  allow dbus,
+
+  # Apply the capability-denying stack recursively to every payload descendant.
+  allow pix /** -> &opsrabbit-opensandbox-bwrap-unpriv,
+  audit deny capability,
+}

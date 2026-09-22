@@ -38,6 +38,37 @@ yes_no() {
   [[ "${value,,}" == "y" || "${value,,}" == "yes" ]]
 }
 
+read_existing_env() {
+  local key="$1"
+  if [[ ! -r "${env_path:-}" ]]; then return 0; fi
+  sed -n "s/^${key}=//p" "${env_path}" | tail -n 1
+}
+
+ensure_env_value() {
+  local key="$1" value="$2" temporary_env
+
+  if grep -Eq "^${key}=.+$" "${env_path}"; then return; fi
+
+  temporary_env="$(mktemp "${deploy_dir}/.env.XXXXXX")"
+  if ! awk -v key="${key}" -v value="${value}" '
+    BEGIN { written = 0 }
+    index($0, key "=") == 1 {
+      if (!written) print key "=" value
+      written = 1
+      next
+    }
+    { print }
+    END { if (!written) print key "=" value }
+  ' "${env_path}" > "${temporary_env}"; then
+    rm -f -- "${temporary_env}"
+    return 1
+  fi
+
+  chown "${deploy_user}:${deploy_user}" "${temporary_env}"
+  chmod 0600 "${temporary_env}"
+  mv -f -- "${temporary_env}" "${env_path}"
+}
+
 install_aws_cli() {
   local machine_arch aws_arch download_url aws_temp_dir install_args
 
@@ -76,9 +107,18 @@ install_aws_cli() {
 }
 
 echo "OpsRabbit image-only AWS deployment installer"
-echo "This installs Docker/AWS CLI packages when missing and creates a Docker-enabled deployment user."
+echo "This installs Docker/AWS CLI packages when missing, OpenSandbox, and a Docker-enabled deployment user."
 echo
 echo "[Installer 1/4] Reviewing deployment settings..."
+
+machine_arch="$(uname -m)"
+case "${machine_arch}" in
+  x86_64|amd64) ;;
+  *)
+    echo "OpsRabbit release images currently require an x86-64 host; found ${machine_arch}." >&2
+    exit 1
+    ;;
+esac
 
 deploy_user="${OPSRABBIT_INSTALL_USER:-opsrabbit}"
 deploy_dir="${OPSRABBIT_INSTALL_DIR:-/opt/opsrabbit}"
@@ -88,6 +128,16 @@ daemon_image="${OPSRABBIT_DAEMON_IMAGE:-${ecr_registry}/vg-backend:latestv2}"
 web_image="${OPSRABBIT_WEB_IMAGE:-${ecr_registry}/vg-webapp:latestv2}"
 web_port="${OPSRABBIT_WEB_PORT:-3000}"
 env_path="${deploy_dir}/.env"
+configured_registry="$(read_existing_env ECR_REGISTRY)"
+configured_sandbox_image="$(read_existing_env OPSRABBIT_SANDBOX_IMAGE)"
+configured_opensandbox_port="$(read_existing_env OPENSANDBOX_PORT)"
+sandbox_image="${configured_sandbox_image:-${OPSRABBIT_SANDBOX_IMAGE:-${configured_registry:-${ecr_registry}}/vg-sandbox:latest}}"
+opensandbox_port="${configured_opensandbox_port:-${OPENSANDBOX_PORT:-8080}}"
+restricted_userns=false
+if [[ -r /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]] \
+  && [[ "$(tr -d '[:space:]' < /proc/sys/kernel/apparmor_restrict_unprivileged_userns)" == "1" ]]; then
+  restricted_userns=true
+fi
 
 if [[ -r "${env_path}" ]]; then
   public_origin="$(sed -n 's/^OPSRABBIT_WEB_ORIGIN=//p' "${env_path}" | tail -n 1)"
@@ -104,6 +154,13 @@ echo "  Directory: ${deploy_dir}"
 echo "  Registry: ${ecr_registry}"
 echo "  Backend: ${daemon_image}"
 echo "  Web: ${web_image}"
+echo "  Sandbox: ${sandbox_image}"
+echo "  OpenSandbox port: 127.0.0.1:${opensandbox_port}"
+if [[ "${restricted_userns}" == true ]]; then
+  echo "  AppArmor: install the scoped Bubblewrap compatibility profile"
+else
+  echo "  AppArmor: compatibility profile not required by this host"
+fi
 echo "  Origin: ${public_origin}"
 echo
 if ! yes_no "Continue" "yes"; then exit 0; fi
@@ -116,6 +173,9 @@ fi
 echo "[Installer 2/4] Installing and verifying host prerequisites..."
 apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl openssl unzip
+if [[ "${restricted_userns}" == true ]] && ! command -v apparmor_parser >/dev/null 2>&1; then
+  DEBIAN_FRONTEND=noninteractive apt-get install -y apparmor
+fi
 if ! command -v docker >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io
 fi
@@ -135,6 +195,7 @@ fi
 usermod -aG docker "${deploy_user}"
 install -d -m 0750 -o "${deploy_user}" -g "${deploy_user}" "${deploy_dir}"
 install -m 0640 -o "${deploy_user}" -g "${deploy_user}" "${script_dir}/docker-compose.yml" "${deploy_dir}/docker-compose.yml"
+install -m 0640 -o "${deploy_user}" -g "${deploy_user}" "${script_dir}/opensandbox-config.toml" "${deploy_dir}/opensandbox-config.toml"
 install -m 0750 -o root -g docker "${script_dir}/opsrabbitctl" /usr/local/bin/opsrabbitctl
 
 if [[ -e "${env_path}" ]]; then
@@ -149,9 +210,12 @@ AWS_REGION=${aws_region}
 ECR_REGISTRY=${ecr_registry}
 OPSRABBIT_DAEMON_IMAGE=${daemon_image}
 OPSRABBIT_WEB_IMAGE=${web_image}
+OPSRABBIT_SANDBOX_IMAGE=${sandbox_image}
 OPSRABBIT_POSTGRES_PASSWORD=${postgres_password}
 BETTER_AUTH_SECRET=${auth_secret}
 OPSRABBIT_NODE_ENCRYPTION_KEY=${encryption_key}
+OPENSANDBOX_SERVER_API_KEY=$(openssl rand -hex 32)
+OPENSANDBOX_PORT=${opensandbox_port}
 OPSRABBIT_DOCKER_SOCKET_GID=${docker_socket_gid}
 OPSRABBIT_WEB_ORIGIN=${public_origin}
 OPSRABBIT_NODE_BASE_URL=${public_origin%/}/api
@@ -161,6 +225,16 @@ WEB_HTTP_PORT=${web_port}
 EOF
   chown "${deploy_user}:${deploy_user}" "${env_path}"
   chmod 0600 "${env_path}"
+fi
+
+ensure_env_value OPSRABBIT_SANDBOX_IMAGE "${sandbox_image}"
+ensure_env_value OPENSANDBOX_SERVER_API_KEY "$(openssl rand -hex 32)"
+ensure_env_value OPENSANDBOX_PORT "${opensandbox_port}"
+
+if [[ "${restricted_userns}" == true ]]; then
+  "${script_dir}/scripts/install-opensandbox-apparmor.sh"
+else
+  echo "The host does not enforce AppArmor's restricted unprivileged-user-namespace setting; no compatibility profile was installed."
 fi
 
 run_as_deployer() {
@@ -176,6 +250,8 @@ if run_as_deployer "aws sts get-caller-identity >/dev/null 2>&1"; then
 else
   echo "No EC2 instance role or existing AWS CLI credentials were detected for ${deploy_user}."
   echo "Enter a least-privilege ECR pull credential. It will be stored in ${deploy_user}'s ~/.aws with mode 0600."
+  aws_access_key_id=""
+  aws_secret_access_key=""
   prompt aws_access_key_id "AWS access key ID"
   prompt_secret aws_secret_access_key "AWS secret access key"
   read -r -s -p "AWS session token (optional; press Enter if unused): " aws_session_token <"${input_device}"
@@ -206,5 +282,8 @@ run_as_deployer "OPSRABBIT_DEPLOY_DIR='${deploy_dir}' /usr/local/bin/opsrabbitct
 
 echo
 echo "OpsRabbit is running at ${public_origin}"
+echo "OpenSandbox endpoint for Configuration -> Sandbox: http://opensandbox-server:8080"
+echo "Sandbox image: ${sandbox_image}"
+echo "The OpenSandbox API key is stored in ${env_path} and was not printed."
 echo "Routine commands: opsrabbitctl status | logs | health | update"
 echo "The ${deploy_user} user belongs to the docker group, which is effectively root-equivalent."

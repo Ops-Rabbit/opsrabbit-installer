@@ -51,6 +51,32 @@ services:
       start_period: 30s
     restart: unless-stopped
 
+  opensandbox-server:
+    image: docker.io/opensandbox/server:v0.2.2@sha256:8f8762af7565ed9c6f9dbcf009dd56727aa1fef8ce58a17f2b007b88cfe542bb
+    ports:
+      - "127.0.0.1:${OPENSANDBOX_PORT:-8080}:8080"
+    environment:
+      SANDBOX_CONFIG_PATH: /etc/opensandbox/config.toml
+      OPENSANDBOX_SERVER_API_KEY: ${OPENSANDBOX_SERVER_API_KEY:?Required}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - opensandbox-state:/var/lib/opensandbox
+      - ./opensandbox-config.toml:/etc/opensandbox/config.toml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    logging:
+      driver: local
+      options:
+        max-size: "10m"
+        max-file: "3"
+    restart: unless-stopped
+
   web:
     image: ${OPSRABBIT_WEB_IMAGE:?Required}
     ports:
@@ -76,4 +102,4 @@ volumes:
   opsrabbit-agent-browser:
   opsrabbit-codex:
   opsrabbit-git:
-
+  opensandbox-state:

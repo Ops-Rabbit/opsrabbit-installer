@@ -14,9 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Validate shell scripts
-        run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl tests/opsrabbitctl.test.sh
+        run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl bundle/scripts/*.sh tests/*.sh
       - name: Test operations helper
         run: bash tests/opsrabbitctl.test.sh
+      - name: Validate AppArmor profile
+        run: sudo apparmor_parser -Q bundle/deploy/apparmor/opsrabbit-opensandbox-bwrap
       - name: Validate Compose manifest
         env:
           OPSRABBIT_DAEMON_IMAGE: example.invalid/opsrabbit-daemon:test
@@ -24,6 +26,9 @@ jobs:
           OPSRABBIT_POSTGRES_PASSWORD: test
           BETTER_AUTH_SECRET: test
           OPSRABBIT_NODE_ENCRYPTION_KEY: test
+          OPSRABBIT_SANDBOX_IMAGE: example.invalid/opsrabbit-sandbox:test
+          OPENSANDBOX_SERVER_API_KEY: test
+          OPENSANDBOX_PORT: "8080"
           OPSRABBIT_DOCKER_SOCKET_GID: "0"
           OPSRABBIT_WEB_ORIGIN: https://opsrabbit.example.com
           OPSRABBIT_NODE_BASE_URL: https://opsrabbit.example.com/api
@@ -31,4 +36,7 @@ jobs:
       - name: Build and inspect archive
         run: |
           tar -C bundle -czf opsrabbit-aws-image-bundle.tar.gz .
-          tar -tzf opsrabbit-aws-image-bundle.tar.gz
+          tar -tzf opsrabbit-aws-image-bundle.tar.gz | tee archive-contents.txt
+          grep -Fx './opensandbox-config.toml' archive-contents.txt
+          grep -Fx './scripts/install-opensandbox-apparmor.sh' archive-contents.txt
+          grep -Fx './deploy/apparmor/opsrabbit-opensandbox-bwrap' archive-contents.txt
