@@ -13,17 +13,23 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Validate shell scripts
-        run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl tests/opsrabbitctl.test.sh
+        run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl bundle/scripts/*.sh tests/*.sh
       - name: Test operations helper
         run: bash tests/opsrabbitctl.test.sh
+      - name: Validate AppArmor profile
+        run: sudo apparmor_parser -Q bundle/deploy/apparmor/opsrabbit-opensandbox-bwrap
       - name: Build release archive
         run: |
           mkdir -p release/assets release/opsrabbit-aws-image-bundle
-          cp bundle/install.sh bundle/opsrabbitctl bundle/docker-compose.yml bundle/README.md release/opsrabbit-aws-image-bundle/
+          cp -a bundle/. release/opsrabbit-aws-image-bundle/
           cp install.sh release/assets/install.sh
           sed -i "s/^default_version=.*/default_version=\"${GITHUB_REF_NAME}\"/" release/assets/install.sh
           grep -F "default_version=\"${GITHUB_REF_NAME}\"" release/assets/install.sh
           tar -C release -czf opsrabbit-aws-image-bundle.tar.gz opsrabbit-aws-image-bundle
+          tar -tzf opsrabbit-aws-image-bundle.tar.gz | tee archive-contents.txt
+          grep -Fx 'opsrabbit-aws-image-bundle/opensandbox-config.toml' archive-contents.txt
+          grep -Fx 'opsrabbit-aws-image-bundle/scripts/install-opensandbox-apparmor.sh' archive-contents.txt
+          grep -Fx 'opsrabbit-aws-image-bundle/deploy/apparmor/opsrabbit-opensandbox-bwrap' archive-contents.txt
           sha256sum opsrabbit-aws-image-bundle.tar.gz > opsrabbit-aws-image-bundle.tar.gz.sha256
       - name: Publish GitHub release
         env:

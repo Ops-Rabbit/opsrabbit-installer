@@ -1,0 +1,40 @@
+[server]
+host = "0.0.0.0"
+port = 8080
+max_sandbox_timeout_seconds = 604800
+
+[log]
+level = "INFO"
+
+[runtime]
+type = "docker"
+execd_image = "docker.io/opensandbox/execd:v1.0.21@sha256:1dc98c7de10b9a73450ac75aa0f200ad7972f2c40f5225f6a8998e166b45d6dd"
+
+[storage]
+allowed_host_paths = []
+
+[store]
+type = "sqlite"
+path = "/var/lib/opensandbox/opensandbox.db"
+
+[docker]
+network_mode = "bridge"
+host_ip = "host.docker.internal"
+port_range_min = 40000
+port_range_max = 41000
+drop_capabilities = ["AUDIT_WRITE", "MKNOD", "NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "SYS_TIME", "SYS_TTY_CONFIG"]
+no_new_privileges = true
+pids_limit = 4096
+
+[ingress]
+mode = "direct"
+
+[egress]
+image = "docker.io/opensandbox/egress:v1.1.4@sha256:973130e01bf76e8e686e2853ebf47b21741bc8781919bb4a7cf60af09a3c6e8a"
+mode = "dns+nft"
+disable_ipv6 = true
+readiness_timeout_seconds = 30.0
+
+[renew_intent]
+enabled = false
+min_interval_seconds = 60
