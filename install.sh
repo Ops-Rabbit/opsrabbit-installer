@@ -22,7 +22,7 @@ temporary_dir="$(mktemp -d)"
 cleanup() { rm -rf "${temporary_dir}"; }
 trap cleanup EXIT
 
-if ! { true </dev/tty; } 2>/dev/null; then
+if ! (true </dev/tty) 2>/dev/null; then
   echo "An interactive terminal is required. Run this command from an interactive SSH session." >&2
   exit 1
 fi
