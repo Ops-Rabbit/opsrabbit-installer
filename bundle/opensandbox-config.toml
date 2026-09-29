@@ -20,8 +20,10 @@ path = "/var/lib/opensandbox/opensandbox.db"
 [docker]
 network_mode = "bridge"
 host_ip = "host.docker.internal"
-port_range_min = 40000
-port_range_max = 41000
+# Dedicated pool below Linux's usual ephemeral range; check host availability.
+# A larger pool reduces collisions but does not fix the upstream allocator.
+port_range_min = 20000
+port_range_max = 29999
 drop_capabilities = ["AUDIT_WRITE", "MKNOD", "NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "SYS_TIME", "SYS_TTY_CONFIG"]
 no_new_privileges = true
 pids_limit = 4096

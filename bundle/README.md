@@ -97,13 +97,17 @@ The installer starts OpenSandbox but does not silently enable command sandboxing
 
 Use session or agent scope, keep worker splitting disabled, and use the workspace-only filesystem policy with deny-all networking for the strict default. Run one controlled command after enabling the provider and confirm that it succeeds.
 
+The updated source bundle uses sandbox host-port pool `20000-29999` (10,000 ports). The currently published `v1.3.2` installer still uses `40000-41000`; installations from that release need the migration below before using the new range. Check existing host listeners, Docker port bindings, and `sysctl net.ipv4.ip_local_port_range` before using it. The new pool avoids Linux's usual `32768-60999` ephemeral range and reduces collisions, but does not eliminate upstream sandbox port-allocation races.
+
+For an existing installation using `40000-41000`, update only `port_range_min` and `port_range_max` in `/opt/opsrabbit/opensandbox-config.toml`, preserving other settings. Apply your existing trusted-network restrictions to the new range, then run `cd /opt/opsrabbit && docker compose up -d --no-deps --force-recreate --wait opensandbox-server`. Keep the old range protected until existing sandboxes retire; their ports remain unchanged. Preserve `opensandbox-state` and allow a brief lifecycle/proxy interruption during recreation. No image rebuild is required.
+
 ## Security notes
 
 - PostgreSQL and the backend host port bind only to `127.0.0.1`.
 - The web port binds publicly by default. Restrict it with a firewall or place an HTTPS reverse proxy/load balancer in front of it.
 - Membership in the Docker group is effectively root access.
 - The daemon mounts the Docker socket because existing admin-only plugin lifecycle features manage sibling containers. Protect OpsRabbit admin access accordingly.
-- The OpenSandbox server also mounts the Docker socket and is host-adjacent infrastructure. Its lifecycle API binds only to loopback, while dynamically created sandbox ports use the host range `40000-41000`. Deny that range from untrusted networks with the cloud firewall/security group and Docker-aware forwarding policy before enabling sandbox execution.
+- The OpenSandbox server also mounts the Docker socket and is host-adjacent infrastructure. Its lifecycle API binds only to loopback, while dynamically created sandbox ports use the configured host range: `20000-29999` in the updated source bundle, or `40000-41000` in release `v1.3.2` until migrated. Deny the active range (both during migration) from untrusted networks with the cloud firewall/security group and Docker-aware forwarding policy before enabling sandbox execution.
 - Bubblewrap AppArmor compatibility is configured only when `kernel.apparmor_restrict_unprivileged_userns=1`. An operating-system profile is preferred when available, as it is on Ubuntu 26.04; hosts without one receive the bundled fallback. The restriction remains enabled, and the selected profile applies to every `/usr/bin/bwrap` caller on the host. Validate other local Bubblewrap workloads on a shared host.
 - The included Compose file serves HTTP. Terminate production TLS at a reverse proxy or load balancer and set the public origin to its HTTPS URL.
 - Keep SSH key-only, restrict administration sources, and do not expose ports 54329 or 8384 publicly.

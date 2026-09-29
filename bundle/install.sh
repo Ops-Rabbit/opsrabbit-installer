@@ -9,7 +9,7 @@ fi
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 input_device="${OPSRABBIT_INPUT_DEVICE:-/dev/tty}"
 
-if ! { true <"${input_device}"; } 2>/dev/null; then
+if ! (true <"${input_device}") 2>/dev/null; then
   echo "An interactive terminal is required. Run the installer from an interactive SSH session." >&2
   exit 1
 fi
