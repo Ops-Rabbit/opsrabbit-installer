@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
 
   opensandbox-server:
-    image: docker.io/opensandbox/server:v0.2.2@sha256:8f8762af7565ed9c6f9dbcf009dd56727aa1fef8ce58a17f2b007b88cfe542bb
+    image: docker.io/opensandbox/server:release-1.1.1@sha256:bcd5f264101262cebfa7e1ff9cd0424403e42f31a6596e4364cf90d8cb5c936b
     ports:
       - "127.0.0.1:${OPENSANDBOX_PORT:-8080}:8080"
     environment:

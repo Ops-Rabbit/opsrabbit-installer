@@ -101,6 +101,21 @@ The updated source bundle uses sandbox host-port pool `20000-29999` (10,000 port
 
 For an existing installation using `40000-41000`, update only `port_range_min` and `port_range_max` in `/opt/opsrabbit/opensandbox-config.toml`, preserving other settings. Apply your existing trusted-network restrictions to the new range, then run `cd /opt/opsrabbit && docker compose up -d --no-deps --force-recreate --wait opensandbox-server`. Keep the old range protected until existing sandboxes retire; their ports remain unchanged. Preserve `opensandbox-state` and allow a brief lifecycle/proxy interruption during recreation. No image rebuild is required.
 
+## OpenSandbox 1.1.1 upgrade
+
+The source bundle pins the server, execd, and egress images to the digests in the [official OpenSandbox 1.1.1 release manifest](https://github.com/opensandbox-group/OpenSandbox/blob/release-1.1.1/docs/releases/1.1.1.yaml). This includes the upstream private-procfs compatibility fix needed by the workspace-only browser. These are digest pins, not a claim of verified image signatures or attestations. Published installer `v1.3.2` remains unchanged and contains the older provider images.
+
+Pair this bundle with a backend image containing [OpsRabbit PR #914](https://github.com/applied-ai-consulting/gaurav-exp/pull/914), including its SDK 1.1.1 byte-range file-download fix. Do not upgrade the provider independently of that backend fix.
+
+For an existing deployment:
+
+1. Back up the persistent data and configuration described above, disable sandbox execution, and let existing managed sandboxes retire.
+2. Replace only `opensandbox-server.image` in the deployed `docker-compose.yml` with the pin in [the source Compose file](docker-compose.yml). Replace only `runtime.execd_image` and `egress.image` in the deployed `opensandbox-config.toml` with the pins in [the source runtime configuration](opensandbox-config.toml). Preserve all other settings, `.env`, volumes, port restrictions, and AppArmor configuration. Do not rerun the installer to replace customized configuration.
+3. Set `OPSRABBIT_DAEMON_IMAGE` in `.env` to the backend image containing the matching fix, then run `opsrabbitctl update`. It does not download new Compose or TOML files; step 2 is required. The helper preserves daemon-first shutdown and reconnects the lifecycle server to Docker's runtime bridge.
+4. Validate health, then enable sandboxing for a controlled thread and check workspace commands, binary/empty file reads, permitted network access, and browser open → snapshot → close before restoring normal sandbox traffic.
+
+The provider upgrade itself does not require rebuilding the OpsRabbit sandbox workload image. Existing sandbox containers retain their old execd/egress runtime until replaced. Ubuntu AppArmor/user-namespace setup is unchanged; this update does not disable host restrictions or require a reboot.
+
 ## Security notes
 
 - PostgreSQL and the backend host port bind only to `127.0.0.1`.
