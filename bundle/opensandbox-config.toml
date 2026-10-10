@@ -8,7 +8,7 @@ level = "INFO"
 
 [runtime]
 type = "docker"
-execd_image = "docker.io/opensandbox/execd:v1.0.21@sha256:1dc98c7de10b9a73450ac75aa0f200ad7972f2c40f5225f6a8998e166b45d6dd"
+execd_image = "docker.io/opensandbox/execd:release-1.1.1@sha256:cda2bc35409bbf57561599b316cafb899598f7dce671332e7ceda14eb1cfeded"
 
 [storage]
 allowed_host_paths = []
@@ -32,7 +32,7 @@ pids_limit = 4096
 mode = "direct"
 
 [egress]
-image = "docker.io/opensandbox/egress:v1.1.4@sha256:973130e01bf76e8e686e2853ebf47b21741bc8781919bb4a7cf60af09a3c6e8a"
+image = "docker.io/opensandbox/egress:release-1.1.1@sha256:bce2cc2e4dc3a3594678b91ac29efb0669fccebfdfc137727018d3b087fbb13a"
 mode = "dns+nft"
 disable_ipv6 = true
 readiness_timeout_seconds = 30.0
