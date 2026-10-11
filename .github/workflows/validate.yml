@@ -17,8 +17,13 @@ jobs:
         run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl bundle/scripts/*.sh tests/*.sh
       - name: Test operations helper
         run: bash tests/opsrabbitctl.test.sh
-      - name: Validate AppArmor profile
-        run: sudo apparmor_parser -Q bundle/deploy/apparmor/opsrabbit-opensandbox-bwrap
+      - name: Test AppArmor installation
+        run: sudo bash tests/apparmor-install.test.sh
+      - name: Validate AppArmor profiles
+        run: |
+          for profile in bundle/deploy/apparmor/*; do
+            sudo apparmor_parser -Q "$profile"
+          done
       - name: Validate Compose manifest
         env:
           OPSRABBIT_DAEMON_IMAGE: example.invalid/opsrabbit-daemon:test
@@ -41,3 +46,4 @@ jobs:
           grep -Fx './scripts/install-docker.sh' archive-contents.txt
           grep -Fx './scripts/install-opensandbox-apparmor.sh' archive-contents.txt
           grep -Fx './deploy/apparmor/opsrabbit-opensandbox-bwrap' archive-contents.txt
+          grep -Fx './deploy/apparmor/opsrabbit-opensandbox-browser' archive-contents.txt
