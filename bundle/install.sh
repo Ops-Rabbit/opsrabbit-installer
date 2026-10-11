@@ -158,7 +158,7 @@ echo "  Sandbox: ${sandbox_image}"
 echo "  OpenSandbox port: 127.0.0.1:${opensandbox_port}"
 echo "  Docker: latest stable Engine, Buildx, and Compose from Docker's official apt repository"
 if [[ "${restricted_userns}" == true ]]; then
-  echo "  AppArmor: configure Bubblewrap compatibility for restricted user namespaces"
+  echo "  AppArmor: configure workspace and Chromium compatibility for restricted user namespaces"
 else
   echo "  AppArmor: compatibility profile not required by this host"
 fi

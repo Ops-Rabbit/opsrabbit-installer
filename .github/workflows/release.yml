@@ -16,8 +16,13 @@ jobs:
         run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl bundle/scripts/*.sh tests/*.sh
       - name: Test operations helper
         run: bash tests/opsrabbitctl.test.sh
-      - name: Validate AppArmor profile
-        run: sudo apparmor_parser -Q bundle/deploy/apparmor/opsrabbit-opensandbox-bwrap
+      - name: Test AppArmor installation
+        run: sudo bash tests/apparmor-install.test.sh
+      - name: Validate AppArmor profiles
+        run: |
+          for profile in bundle/deploy/apparmor/*; do
+            sudo apparmor_parser -Q "$profile"
+          done
       - name: Build release archive
         run: |
           mkdir -p release/assets release/opsrabbit-aws-image-bundle
@@ -31,6 +36,7 @@ jobs:
           grep -Fx 'opsrabbit-aws-image-bundle/scripts/install-docker.sh' archive-contents.txt
           grep -Fx 'opsrabbit-aws-image-bundle/scripts/install-opensandbox-apparmor.sh' archive-contents.txt
           grep -Fx 'opsrabbit-aws-image-bundle/deploy/apparmor/opsrabbit-opensandbox-bwrap' archive-contents.txt
+          grep -Fx 'opsrabbit-aws-image-bundle/deploy/apparmor/opsrabbit-opensandbox-browser' archive-contents.txt
           sha256sum opsrabbit-aws-image-bundle.tar.gz > opsrabbit-aws-image-bundle.tar.gz.sha256
       - name: Publish GitHub release
         env:

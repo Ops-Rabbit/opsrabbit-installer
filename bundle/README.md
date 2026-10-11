@@ -53,7 +53,7 @@ The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us
 
 Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRABBIT_INSTALL_DIR`, `OPSRABBIT_AWS_REGION`, `OPSRABBIT_ECR_REGISTRY`, `OPSRABBIT_DAEMON_IMAGE`, `OPSRABBIT_WEB_IMAGE`, `OPSRABBIT_SANDBOX_IMAGE`, `OPENSANDBOX_PORT`, or `OPSRABBIT_WEB_PORT`.
 
-It configures Docker's official stable apt repository and installs or upgrades Docker Engine, Buildx, and Compose to that repository's latest candidate. When migrating from distribution-provided Docker packages, their removal can briefly interrupt running containers, but Docker data in `/var/lib/docker` is preserved. It also installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it uses Ubuntu's packaged Bubblewrap profile when available and otherwise atomically installs the bundled compatibility profile. It does not disable the host-wide restriction or require a reboot. This also removes an unchanged conflicting fallback left by installer `v1.3.0` on Ubuntu 26.04.
+It configures Docker's official stable apt repository and installs or upgrades Docker Engine, Buildx, and Compose to that repository's latest candidate. When migrating from distribution-provided Docker packages, their removal can briefly interrupt running containers, but Docker data in `/var/lib/docker` is preserved. It also installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it installs the browser-specific AppArmor policy and uses Ubuntu's packaged Bubblewrap policy for ordinary commands when available, otherwise installing the bundled fallback. Policy changes are rolled back if installation fails. It does not disable the host-wide restriction or require a reboot. This also removes an unchanged conflicting fallback left by installer `v1.3.0` on Ubuntu 26.04.
 
 Use immutable image tags or digests for production rather than `latest`.
 
@@ -116,6 +116,19 @@ For an existing deployment:
 
 The provider upgrade itself does not require rebuilding the OpsRabbit sandbox workload image. Existing sandbox containers retain their old execd/egress runtime until replaced. Ubuntu AppArmor/user-namespace setup is unchanged; this update does not disable host restrictions or require a reboot.
 
+## Browser/AppArmor compatibility upgrade
+
+The source bundle also carries the browser policy for [OpsRabbit PR #916](https://github.com/applied-ai-consulting/gaurav-exp/pull/916). Published installer `v1.3.2` does not include it. Unlike the provider-only 1.1.1 upgrade above, this browser fix requires a **rebuilt sandbox workload image and matching backend** containing #916. Keep the existing image tags if desired, but verify their new digests contain that fix before upgrading.
+
+On restricted Ubuntu hosts, the bundled root installer installs both required policy layers automatically. For an existing deployment, use the newly downloaded source/release bundle without rerunning its full installer:
+
+1. Disable sandbox execution and allow managed sandboxes to retire. Back up configuration and data as described above.
+2. From the new extracted bundle, run `sudo ./scripts/install-opensandbox-apparmor.sh`. This installs `/etc/apparmor.d/opsrabbit-opensandbox-browser`, keeps the packaged Bubblewrap policy when present, and removes only a byte-identical known legacy fallback. It rejects disabled packaged policy or a customized conflicting fallback rather than overwriting it. The script installs **policy only**, not a host browser launcher. Hosts without the restricted-userns setting do not require this policy step.
+3. Point `.env` at the matching backend and rebuilt sandbox workload image, or verify those images were published under your existing tags; run `opsrabbitctl update`. It pre-pulls the workload image but does not install host policy. Preserve `.env` secrets and all existing Compose/TOML settings.
+4. Start a new controlled thread and verify ordinary commands plus browser open → snapshot → reuse → close. Check `chrome://sandbox` for namespace, PID-namespace and seccomp protections before restoring normal traffic. Existing sandbox containers retain their previous image until retired/recreated.
+
+The workload image must contain the root-owned native Bubblewrap copy at `/opt/opsrabbit-system/bin/browser-bwrap` and immutable Chromium executable at `/opt/opsrabbit-agent-browser/chromium/chrome` on every host. Custom browser images/executables need a matching reviewed host policy on restricted Ubuntu. Do not install the image launcher on the host or disable Chromium's sandbox. Ordinary commands retain their capability-denying policy; standard sandbox containers must retain Docker's normal AppArmor/seccomp confinement. Deliberately unconfined standard containers are unsupported. No host reboot is required.
+
 ## Security notes
 
 - PostgreSQL and the backend host port bind only to `127.0.0.1`.
@@ -123,7 +136,7 @@ The provider upgrade itself does not require rebuilding the OpsRabbit sandbox wo
 - Membership in the Docker group is effectively root access.
 - The daemon mounts the Docker socket because existing admin-only plugin lifecycle features manage sibling containers. Protect OpsRabbit admin access accordingly.
 - The OpenSandbox server also mounts the Docker socket and is host-adjacent infrastructure. Its lifecycle API binds only to loopback, while dynamically created sandbox ports use the configured host range: `20000-29999` in the updated source bundle, or `40000-41000` in release `v1.3.2` until migrated. Deny the active range (both during migration) from untrusted networks with the cloud firewall/security group and Docker-aware forwarding policy before enabling sandbox execution.
-- Bubblewrap AppArmor compatibility is configured only when `kernel.apparmor_restrict_unprivileged_userns=1`. An operating-system profile is preferred when available, as it is on Ubuntu 26.04; hosts without one receive the bundled fallback. The restriction remains enabled, and the selected profile applies to every `/usr/bin/bwrap` caller on the host. Validate other local Bubblewrap workloads on a shared host.
+- Bubblewrap AppArmor compatibility is configured only when `kernel.apparmor_restrict_unprivileged_userns=1`. Ordinary `/usr/bin/bwrap` callers retain the packaged or bundled capability-denying policy. A separate image-only browser entrypoint uses capability-denied controllers and the fixed Chromium namespace-capability policy, preserving Chromium's sandbox and the host-wide restriction. Validate other local Bubblewrap workloads on a shared host.
 - The included Compose file serves HTTP. Terminate production TLS at a reverse proxy or load balancer and set the public origin to its HTTPS URL.
 - Keep SSH key-only, restrict administration sources, and do not expose ports 54329 or 8384 publicly.
 
