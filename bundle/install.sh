@@ -25,12 +25,6 @@ prompt() {
   printf -v "${variable_name}" '%s' "${value}"
 }
 
-prompt_secret() {
-  local variable_name="$1" message="$2" value
-  while [[ -z "${value:-}" ]]; do read -r -s -p "${message}: " value <"${input_device}"; echo; done
-  printf -v "${variable_name}" '%s' "${value}"
-}
-
 yes_no() {
   local message="$1" default_value="$2" value
   read -r -p "${message} [${default_value}]: " value <"${input_device}"
@@ -188,7 +182,9 @@ usermod -aG docker "${deploy_user}"
 install -d -m 0750 -o "${deploy_user}" -g "${deploy_user}" "${deploy_dir}"
 install -m 0640 -o "${deploy_user}" -g "${deploy_user}" "${script_dir}/docker-compose.yml" "${deploy_dir}/docker-compose.yml"
 install -m 0640 -o "${deploy_user}" -g "${deploy_user}" "${script_dir}/opensandbox-config.toml" "${deploy_dir}/opensandbox-config.toml"
-install -m 0750 -o root -g docker "${script_dir}/opsrabbitctl" /usr/local/bin/opsrabbitctl
+install -m 0755 -o root -g root "${script_dir}/opsrabbitctl" /usr/local/bin/opsrabbitctl
+install -d -m 0755 -o root -g root /usr/local/lib/opsrabbit
+install -m 0644 -o root -g root "${script_dir}/scripts/aws-auth.sh" /usr/local/lib/opsrabbit/aws-auth.sh
 
 if [[ -e "${env_path}" ]]; then
   echo "Preserving existing ${env_path}; image and URL settings were not overwritten."
@@ -229,48 +225,12 @@ else
   echo "The host does not enforce AppArmor's restricted unprivileged-user-namespace setting; no compatibility profile was installed."
 fi
 
-run_as_deployer() {
-  local command="$1"
-  runuser -u "${deploy_user}" -- env HOME="$(getent passwd "${deploy_user}" | cut -d: -f6)" bash -lc "${command}"
-}
-
-echo "[Installer 4/4] Verifying AWS access, pulling images, and starting services..."
-export AWS_METADATA_SERVICE_TIMEOUT=2
-export AWS_METADATA_SERVICE_NUM_ATTEMPTS=1
-if run_as_deployer "aws sts get-caller-identity >/dev/null 2>&1"; then
-  echo "Using the AWS identity already available to ${deploy_user} (for example, an EC2 instance role)."
-else
-  echo "No EC2 instance role or existing AWS CLI credentials were detected for ${deploy_user}."
-  echo "Enter a least-privilege ECR pull credential. It will be stored in ${deploy_user}'s ~/.aws with mode 0600."
-  aws_access_key_id=""
-  aws_secret_access_key=""
-  prompt aws_access_key_id "AWS access key ID"
-  prompt_secret aws_secret_access_key "AWS secret access key"
-  read -r -s -p "AWS session token (optional; press Enter if unused): " aws_session_token <"${input_device}"
-  echo
-
-  user_home="$(getent passwd "${deploy_user}" | cut -d: -f6)"
-  aws_dir="${user_home}/.aws"
-  install -d -m 0700 -o "${deploy_user}" -g "${deploy_user}" "${aws_dir}"
-  {
-    echo "[default]"
-    echo "aws_access_key_id = ${aws_access_key_id}"
-    echo "aws_secret_access_key = ${aws_secret_access_key}"
-    if [[ -n "${aws_session_token:-}" ]]; then echo "aws_session_token = ${aws_session_token}"; fi
-  } > "${aws_dir}/credentials"
-  printf '[default]\nregion = %s\n' "${aws_region}" > "${aws_dir}/config"
-  chown "${deploy_user}:${deploy_user}" "${aws_dir}/credentials" "${aws_dir}/config"
-  chmod 0600 "${aws_dir}/credentials" "${aws_dir}/config"
-
-  if ! run_as_deployer "aws sts get-caller-identity >/dev/null"; then
-    echo "The supplied AWS credentials are not valid." >&2
-    exit 1
-  fi
-fi
-
-echo "AWS access verified. Authenticating to ECR and starting OpsRabbit..."
-run_as_deployer "OPSRABBIT_DEPLOY_DIR='${deploy_dir}' /usr/local/bin/opsrabbitctl deploy"
-run_as_deployer "OPSRABBIT_DEPLOY_DIR='${deploy_dir}' /usr/local/bin/opsrabbitctl health"
+echo "[Installer 4/4] Configure AWS authentication, verify image access, and start services..."
+# The helper handles deployment-user routing and owns the same authentication flow
+# used for every later login, deploy and update. Never auto-select a host identity.
+OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl auth configure
+OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl deploy
+OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl health
 
 echo
 echo "OpsRabbit is running at ${public_origin}"
