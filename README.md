@@ -4,17 +4,15 @@ This bundle deploys the core OpsRabbit stack and its OpenSandbox lifecycle servi
 
 ## Quick install
 
-Install the tagged `v1.3.2` release on a Debian or Ubuntu host:
+Install the tagged `v1.3.3` release on a Debian or Ubuntu host:
 
 ```bash
-curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.3.2/install.sh | sudo bash
+curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.3.3/install.sh | sudo bash
 ```
 
-This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.3.2` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
+This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.3.3` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
 
-To install another version, replace `v1.3.2` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
-
-Release `v1.3.2` can stop immediately after installing Docker with exit code `141` when its candidate-version parser closes a large `apt-cache policy` output early. The source installer captures the full policy output in the C locale before parsing, requires exactly one well-formed candidate, and validates the Debian version while retaining `pipefail` and command failures. The published `v1.3.2` assets remain unchanged; the source fix needs a new release before it is available through a release download URL.
+To install another version, replace `v1.3.3` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
 
 ## Requirements
 
