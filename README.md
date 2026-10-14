@@ -4,17 +4,15 @@ This bundle deploys the core OpsRabbit stack and its OpenSandbox lifecycle servi
 
 ## Quick install
 
-Install the tagged `v1.3.2` release on a Debian or Ubuntu host:
+Install the tagged `v1.3.3` release on a Debian or Ubuntu host:
 
 ```bash
-curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.3.2/install.sh | sudo bash
+curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.3.3/install.sh | sudo bash
 ```
 
-This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.3.2` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
+This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.3.3` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
 
-To install another version, replace `v1.3.2` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
-
-Release `v1.3.2` can stop immediately after installing Docker with exit code `141` when its candidate-version parser closes a large `apt-cache policy` output early. The source installer captures the full policy output in the C locale before parsing, requires exactly one well-formed candidate, and validates the Debian version while retaining `pipefail` and command failures. The published `v1.3.2` assets remain unchanged; the source fix needs a new release before it is available through a release download URL.
+To install another version, replace `v1.3.3` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
 
 ## Requirements
 
@@ -109,13 +107,13 @@ The installer starts OpenSandbox but does not silently enable command sandboxing
 
 Use session or agent scope, keep worker splitting disabled, and use the workspace-only filesystem policy with deny-all networking for the strict default. Run one controlled command after enabling the provider and confirm that it succeeds.
 
-The updated source bundle uses sandbox host-port pool `20000-29999` (10,000 ports). The currently published `v1.3.2` installer still uses `40000-41000`; installations from that release need the migration below before using the new range. Check existing host listeners, Docker port bindings, and `sysctl net.ipv4.ip_local_port_range` before using it. The new pool avoids Linux's usual `32768-60999` ephemeral range and reduces collisions, but does not eliminate upstream sandbox port-allocation races.
+The `v1.3.3` bundle uses sandbox host-port pool `20000-29999` (10,000 ports). The `v1.3.2` installer uses `40000-41000`; installations from that release need the migration below before using the new range. Check existing host listeners, Docker port bindings, and `sysctl net.ipv4.ip_local_port_range` before using it. The new pool avoids Linux's usual `32768-60999` ephemeral range and reduces collisions, but does not eliminate upstream sandbox port-allocation races.
 
 For an existing installation using `40000-41000`, update only `port_range_min` and `port_range_max` in `/opt/opsrabbit/opensandbox-config.toml`, preserving other settings. Apply your existing trusted-network restrictions to the new range, then run `cd /opt/opsrabbit && docker compose up -d --no-deps --force-recreate --wait opensandbox-server`. Keep the old range protected until existing sandboxes retire; their ports remain unchanged. Preserve `opensandbox-state` and allow a brief lifecycle/proxy interruption during recreation. No image rebuild is required.
 
 ## OpenSandbox 1.1.1 upgrade
 
-The source bundle pins the server, execd, and egress images to the digests in the [official OpenSandbox 1.1.1 release manifest](https://github.com/opensandbox-group/OpenSandbox/blob/release-1.1.1/docs/releases/1.1.1.yaml). This includes the upstream private-procfs compatibility fix needed by the workspace-only browser. These are digest pins, not a claim of verified image signatures or attestations. Published installer `v1.3.2` remains unchanged and contains the older provider images.
+The `v1.3.3` bundle pins the server, execd, and egress images to the digests in the [official OpenSandbox 1.1.1 release manifest](https://github.com/opensandbox-group/OpenSandbox/blob/release-1.1.1/docs/releases/1.1.1.yaml). This includes the upstream private-procfs compatibility fix needed by the workspace-only browser. These are digest pins, not a claim of verified image signatures or attestations. Published installer `v1.3.2` remains unchanged and contains the older provider images.
 
 Pair this bundle with a backend image containing [OpsRabbit PR #914](https://github.com/applied-ai-consulting/gaurav-exp/pull/914), including its SDK 1.1.1 byte-range file-download fix. Do not upgrade the provider independently of that backend fix.
 
@@ -130,7 +128,7 @@ The provider upgrade itself does not require rebuilding the OpsRabbit sandbox wo
 
 ## Browser/AppArmor compatibility upgrade
 
-The source bundle also carries the browser policy for [OpsRabbit PR #916](https://github.com/applied-ai-consulting/gaurav-exp/pull/916). Published installer `v1.3.2` does not include it. Unlike the provider-only 1.1.1 upgrade above, this browser fix requires a **rebuilt sandbox workload image and matching backend** containing #916. Keep the existing image tags if desired, but verify their new digests contain that fix before upgrading.
+The `v1.3.3` bundle also carries the browser policy for [OpsRabbit PR #916](https://github.com/applied-ai-consulting/gaurav-exp/pull/916). Published installer `v1.3.2` does not include it. Unlike the provider-only 1.1.1 upgrade above, this browser fix requires a **rebuilt sandbox workload image and matching backend** containing #916. Keep the existing image tags if desired, but verify their new digests contain that fix before upgrading.
 
 On restricted Ubuntu hosts, the bundled root installer installs both required policy layers automatically. For an existing deployment, use the newly downloaded source/release bundle without rerunning its full installer:
 
@@ -147,7 +145,7 @@ The workload image must contain the root-owned native Bubblewrap copy at `/opt/o
 - The web port binds publicly by default. Restrict it with a firewall or place an HTTPS reverse proxy/load balancer in front of it.
 - Membership in the Docker group is effectively root access.
 - The daemon mounts the Docker socket because existing admin-only plugin lifecycle features manage sibling containers. Protect OpsRabbit admin access accordingly.
-- The OpenSandbox server also mounts the Docker socket and is host-adjacent infrastructure. Its lifecycle API binds only to loopback, while dynamically created sandbox ports use the configured host range: `20000-29999` in the updated source bundle, or `40000-41000` in release `v1.3.2` until migrated. Deny the active range (both during migration) from untrusted networks with the cloud firewall/security group and Docker-aware forwarding policy before enabling sandbox execution.
+- The OpenSandbox server also mounts the Docker socket and is host-adjacent infrastructure. Its lifecycle API binds only to loopback, while dynamically created sandbox ports use the configured host range: `20000-29999` in installer `v1.3.3`, or `40000-41000` in release `v1.3.2` until migrated. Deny the active range (both during migration) from untrusted networks with the cloud firewall/security group and Docker-aware forwarding policy before enabling sandbox execution.
 - Bubblewrap AppArmor compatibility is configured only when `kernel.apparmor_restrict_unprivileged_userns=1`. Ordinary `/usr/bin/bwrap` callers retain the packaged or bundled capability-denying policy. A separate image-only browser entrypoint uses capability-denied controllers and the fixed Chromium namespace-capability policy, preserving Chromium's sandbox and the host-wide restriction. Validate other local Bubblewrap workloads on a shared host.
 - The included Compose file serves HTTP. Terminate production TLS at a reverse proxy or load balancer and set the public origin to its HTTPS URL.
 - Keep SSH key-only, restrict administration sources, and do not expose ports 54329 or 8384 publicly.
