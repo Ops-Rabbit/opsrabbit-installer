@@ -14,6 +14,8 @@ This URL points to an immutable GitHub Release asset, not the mutable `main` bra
 
 To install another version, replace `v1.3.2` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
 
+Release `v1.3.2` can stop immediately after installing Docker with exit code `141` when its candidate-version parser closes a large `apt-cache policy` output early. The source installer captures the full policy output in the C locale before parsing, requires exactly one well-formed candidate, and validates the Debian version while retaining `pipefail` and command failures. The published `v1.3.2` assets remain unchanged; the source fix needs a new release before it is available through a release download URL.
+
 ## Requirements
 
 - Ubuntu Server 24.04 LTS or 26.04 LTS, or Debian 13
