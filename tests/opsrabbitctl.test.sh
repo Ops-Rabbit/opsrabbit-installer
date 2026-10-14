@@ -16,16 +16,24 @@ AWS_REGION=us-east-1
 ECR_REGISTRY=123456789012.dkr.ecr.us-east-1.amazonaws.com
 OPSRABBIT_BACKEND_PORT=8384
 WEB_HTTP_PORT=3000
+OPSRABBIT_DAEMON_IMAGE=123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-backend:test
+OPSRABBIT_WEB_IMAGE=123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-webapp:test
 OPSRABBIT_SANDBOX_IMAGE=123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:test
 OPENSANDBOX_PORT=8080
 OPENSANDBOX_SERVER_API_KEY=test-open-sandbox-key
 EOF
 touch "${deploy_dir}/docker-compose.yml"
+printf "profile\nfixture-profile\n" > "${deploy_dir}/.aws-auth"
 
 cat > "${stub_bin}/aws" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-echo temporary-password
+if [[ "$*" == "sts get-caller-identity "* ]]; then
+  [[ "${AWS_PROFILE:-}" == fixture-profile && "${AWS_EC2_METADATA_DISABLED:-}" == true ]]
+  printf '123456789012\tarn:aws:iam::123456789012:role/fixture\n'
+else
+  echo temporary-password
+fi
 EOF
 
 cat > "${stub_bin}/docker" <<'EOF'
@@ -95,7 +103,7 @@ while IFS='|' read -r command_pwd docker_config command_args; do
   [[ "${command_pwd}" == "${deploy_dir}" ]]
   [[ "${docker_config}" == /tmp/* || "${docker_config}" == /var/* || "${docker_config}" == "${test_root}"/* ]]
   [[ ! -e "${docker_config}" ]]
-  [[ "${command_args}" == compose* || "${command_args}" == pull* || "${command_args}" == inspect* || "${command_args}" == network* ]]
+  [[ "${command_args}" == manifest* || "${command_args}" == compose* || "${command_args}" == pull* || "${command_args}" == inspect* || "${command_args}" == network* ]]
 done < "${command_log}"
 
 : > "${command_log}"

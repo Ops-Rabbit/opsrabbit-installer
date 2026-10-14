@@ -1,12 +1,34 @@
 #!/usr/bin/env bash
 set -euo pipefail
+set +x
 
 deploy_dir="${OPSRABBIT_DEPLOY_DIR:-/opt/opsrabbit}"
 env_file="${deploy_dir}/.env"
 compose_file="${deploy_dir}/docker-compose.yml"
+helper_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+
+if [[ ! -d "${deploy_dir}" ]]; then
+  echo "OpsRabbit is not installed in ${deploy_dir}. Run the installer first." >&2
+  exit 1
+fi
+
+# Run every command with the deployment owner's HOME, including AWS login/cache.
+# sudo is an existing administrator permission, not a privilege granted here.
+deploy_owner="$(stat -c '%U' "${deploy_dir}")"
+if [[ "$(id -un)" != "${deploy_owner}" ]]; then
+  if [[ "${EUID}" -ne 0 ]]; then
+    echo "Using sudo to run OpsRabbit as ${deploy_owner}..."
+    exec sudo -- env OPSRABBIT_DEPLOY_DIR="${deploy_dir}" "${helper_path}" "$@"
+  fi
+  owner_home="$(getent passwd "${deploy_owner}" | cut -d: -f6)"
+  [[ -n "${owner_home}" ]] || { echo "Deployment owner has no home directory." >&2; exit 1; }
+  cd /
+  exec runuser -u "${deploy_owner}" -- env HOME="${owner_home}" \
+    OPSRABBIT_DEPLOY_DIR="${deploy_dir}" "${helper_path}" "$@"
+fi
 
 if [[ ! -r "${env_file}" || ! -r "${compose_file}" ]]; then
-  echo "OpsRabbit is not configured in ${deploy_dir}." >&2
+  echo "Deployment configuration is missing or unreadable in ${deploy_dir}. Run the installer to repair it." >&2
   exit 1
 fi
 
@@ -35,19 +57,34 @@ opensandbox_api_key="$(read_env OPENSANDBOX_SERVER_API_KEY)"
 
 compose=(docker compose --env-file "${env_file}" -f "${compose_file}")
 docker_config_dir=""
+auth_candidate=""
+auth_browser_candidate=""
+auth_state_candidate=""
 
 cleanup() {
   if [[ -n "${docker_config_dir}" && -d "${docker_config_dir}" ]]; then
     rm -rf "${docker_config_dir}"
   fi
+  if [[ -n "${auth_candidate}" ]]; then rm -f -- "${auth_candidate}"; fi
+  if [[ -n "${auth_browser_candidate}" ]]; then rm -f -- "${auth_browser_candidate}"; fi
+  if [[ -n "${auth_state_candidate}" ]]; then rm -f -- "${auth_state_candidate}"; fi
 }
 trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+auth_library="$(dirname "${helper_path}")/scripts/aws-auth.sh"
+if [[ ! -f "${auth_library}" ]]; then auth_library=/usr/local/lib/opsrabbit/aws-auth.sh; fi
+# shellcheck source=scripts/aws-auth.sh
+source "${auth_library}"
 
 ecr_login() {
   local login_output
 
-  docker_config_dir="$(mktemp -d)"
-  chmod 0700 "${docker_config_dir}"
+  if [[ -n "${docker_config_dir}" ]]; then rm -rf -- "${docker_config_dir}" || return 1; fi
+  docker_config_dir="$(mktemp -d)" || return 1
+  [[ -n "${docker_config_dir}" && -d "${docker_config_dir}" ]] || return 1
+  chmod 0700 "${docker_config_dir}" || return 1
   export DOCKER_CONFIG="${docker_config_dir}"
 
   if ! login_output="$(
@@ -55,10 +92,35 @@ ecr_login() {
       | docker login --username AWS --password-stdin "${ecr_registry}" 2>&1
   )"; then
     echo "${login_output}" >&2
+    echo "ECR login failed. Renew or change authentication with: opsrabbitctl auth login" >&2
     return 1
   fi
 
   echo "ECR login succeeded using a temporary Docker credential file."
+}
+
+auth_validate() {
+  local image image_key
+  auth_identity || return 1
+  ecr_login || return 1
+  echo "Checking access to required image manifests..."
+  for image_key in OPSRABBIT_DAEMON_IMAGE OPSRABBIT_WEB_IMAGE OPSRABBIT_SANDBOX_IMAGE; do
+    image="$(read_env "${image_key}")" || return 1
+    if ! docker manifest inspect "${image}" >/dev/null; then
+      echo "Cannot read image ${image}. Check image existence and ECR pull permissions for the identity above." >&2
+      return 1
+    fi
+    echo "  ${image}: OK"
+  done
+}
+
+authenticate() {
+  auth_load || return 1
+  auth_prepare || return 1
+  if ! auth_validate; then
+    echo "Deployment stopped before changing services. Run: opsrabbitctl auth login" >&2
+    return 1
+  fi
 }
 
 connect_opensandbox_runtime_bridge() {
@@ -91,11 +153,19 @@ start_services() {
 }
 
 case "${1:-}" in
+  auth)
+    case "${2:-}" in
+      configure) auth_configure ;;
+      login) auth_renew ;;
+      status) auth_load; auth_prepare; auth_identity ;;
+      *) echo "Usage: opsrabbitctl auth {configure|login|status}" >&2; exit 2 ;;
+    esac
+    ;;
   login)
-    ecr_login
+    authenticate
     ;;
   deploy|update)
-    ecr_login
+    authenticate
     docker pull "${sandbox_image}"
     "${compose[@]}" pull
     # Keep OpenSandbox available while the backend retires its managed sandboxes.
@@ -141,7 +211,7 @@ case "${1:-}" in
     echo "OpenSandbox health, authentication, and sandbox image checks passed."
     ;;
   *)
-    echo "Usage: opsrabbitctl {login|deploy|update|start|stop|restart|status|logs [service]|health}" >&2
+    echo "Usage: opsrabbitctl {auth {configure|login|status}|login|deploy|update|start|stop|restart|status|logs [service]|health}" >&2
     exit 2
     ;;
 esac

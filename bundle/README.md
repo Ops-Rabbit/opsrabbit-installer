@@ -44,12 +44,13 @@ cd opsrabbit-aws-image-bundle
 sudo ./install.sh
 ```
 
-For a normal EC2 installation with a working instance role, the installer asks only for:
+The installer asks for:
 
 - the public OpsRabbit URL
 - confirmation before changing the host
+- an explicit AWS authentication method for the private images
 
-The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us-east-1`), ECR registry, backend and web `latestv2` deployment tags, `vg-sandbox:latest` sandbox image, OpenSandbox port (`8080` on loopback), and web port (`3000`) use the OpsRabbit defaults. AWS access credentials are requested only if neither an EC2 instance role nor existing AWS CLI credentials are available to the deployment user.
+The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us-east-1`), ECR registry, backend and web `latestv2` deployment tags, `vg-sandbox:latest` sandbox image, OpenSandbox port (`8080` on loopback), and web port (`3000`) use the OpsRabbit defaults. AWS authentication is explicitly selected even when the machine already has an EC2 role.
 
 Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRABBIT_INSTALL_DIR`, `OPSRABBIT_AWS_REGION`, `OPSRABBIT_ECR_REGISTRY`, `OPSRABBIT_DAEMON_IMAGE`, `OPSRABBIT_WEB_IMAGE`, `OPSRABBIT_SANDBOX_IMAGE`, `OPENSANDBOX_PORT`, or `OPSRABBIT_WEB_PORT`.
 
@@ -59,15 +60,30 @@ Use immutable image tags or digests for production rather than `latest`.
 
 ## AWS authentication
 
-The installer automatically uses an EC2 instance profile or existing AWS CLI identity when one is available to the deployment user. An instance profile with only the ECR pull permissions above is recommended because no long-lived AWS credential is stored on the host.
+Choose one of the following during installation:
 
-The stored-access-key option writes standard AWS CLI files beneath the deployment user's home with directory mode `0700` and file mode `0600`. Prefer an instance role when available.
+1. **Sign in with AWS CLI:** open the displayed URL in your browser and enter the authorization code in the server terminal. This uses `aws login --remote` with the managed `opsrabbit-deploy` profile. An existing older AWS CLI must support `aws login`; otherwise update AWS CLI v2 or select temporary credentials.
+2. **Enter temporary AWS credentials:** supply your access key, secret key and session token through hidden prompts. The session token is required for temporary credentials. Long-lived access keys can omit the token.
+3. **Use this machine's EC2 role:** explicitly opt in only when that role is intended to pull the deployment images. On a client machine, choose your own login or credentials instead.
+4. **Use an existing AWS CLI profile:** enter a profile already configured for the deployment user. Profiles belonging to `ubuntu`, `ssm-user` or `root` are not copied. Existing IAM Identity Center profiles can renew through device authorization.
 
-When no working identity is detected, the installer requests a least-privilege access key and validates it before pulling images.
+The helper displays the selected AWS account and role/user, logs in to ECR, and checks all three configured image manifests before deployment. All image pulls finish before running services are changed. A successful ECR login alone does not prove image access. Failed selection returns to the installer menu; normal deployment/update commands fail with renewal instructions. The helper clears inherited AWS credentials and provider/endpoint overrides. EC2 metadata is disabled unless the instance-role option was explicitly selected.
+
+The method/profile selection is stored in `/opt/opsrabbit/.aws-auth` with mode `0600`. Temporary credentials are stored separately in the deployment user's `~/.aws/opsrabbit/credentials` with directory mode `0700` and file mode `0600`; they are never written to the application's `.env`. Browser login uses `~/.aws/opsrabbit/config` and AWS CLI's login cache. Existing profiles use that user's standard AWS CLI files. Successful switches away from temporary credentials remove the managed credentials file. AWS CLI owns browser/SSO session expiry and cache management.
+
+For renewal, a new selection, or identity inspection, run from your normal sudo-capable account:
+
+```bash
+opsrabbitctl auth login
+opsrabbitctl auth configure
+opsrabbitctl auth status
+```
+
+`auth login` renews the selected browser, temporary-credential or SSO method and checks image access again. Other existing profile types must be renewed through their configured AWS credential provider. Legacy installations without an explicit selection must run `opsrabbitctl auth configure` after upgrading the helper. No manual exports or Linux-user switching are required.
 
 ## Operations
 
-Run these as the deployment user:
+Run these from your normal sudo-capable account. The helper requests sudo when necessary and runs as the deployment owner, so AWS login and subsequent commands use the same home directory:
 
 ```bash
 opsrabbitctl status
