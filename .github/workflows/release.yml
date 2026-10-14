@@ -16,6 +16,8 @@ jobs:
         run: bash -n install.sh bundle/install.sh bundle/opsrabbitctl bundle/scripts/*.sh tests/*.sh
       - name: Test operations helper
         run: bash tests/opsrabbitctl.test.sh
+      - name: Test Docker installation
+        run: sudo bash tests/docker-install.test.sh
       - name: Test AppArmor installation
         run: sudo bash tests/apparmor-install.test.sh
       - name: Validate AppArmor profiles

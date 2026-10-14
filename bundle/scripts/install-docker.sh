@@ -107,9 +107,33 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y \
   docker-compose-plugin
 
 installed_version="$(dpkg-query -W -f='${Version}' docker-ce)"
-candidate_version="$(apt-cache policy docker-ce | awk '/Candidate:/ { print $2; exit }')"
+# Capture first so parsing cannot close apt-cache's stdout early (SIGPIPE/141).
+# Pin the locale because policy labels are translated in other locales.
+policy_output="$(LC_ALL=C apt-cache policy docker-ce)" || {
+  status=$?
+  echo "Unable to read Docker's candidate version from apt-cache (exit ${status})." >&2
+  exit "${status}"
+}
+if ! candidate_version="$(LC_ALL=C awk '
+  $1 == "Candidate:" {
+    count++
+    version = $2
+    if (NF != 2) malformed = 1
+  }
+  END {
+    if (count != 1 || malformed) exit 1
+    print version
+  }
+' <<< "${policy_output}")"; then
+  echo "Expected exactly one well-formed docker-ce candidate in apt-cache policy output." >&2
+  exit 1
+fi
 if [[ -z "${candidate_version}" || "${candidate_version}" == "(none)" ]]; then
   echo "Docker's official repository did not provide a docker-ce candidate for ${docker_distribution} ${docker_suite}." >&2
+  exit 1
+fi
+if ! dpkg --validate-version "${candidate_version}"; then
+  echo "apt-cache returned an invalid docker-ce candidate version." >&2
   exit 1
 fi
 if [[ "${installed_version}" != "${candidate_version}" ]]; then
