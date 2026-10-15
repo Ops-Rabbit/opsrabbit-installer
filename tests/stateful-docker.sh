@@ -23,7 +23,11 @@ case "$*" in
 esac
 args="$*"
 case "$args" in
-  *'config --services') printf 'daemon\nweb\nworker\nopensandbox-server\n'; exit 0 ;;
+  *'config --services')
+    printf 'daemon\nweb\nopensandbox-server\n'
+    # This customer's worker belongs to the background profile.
+    if [[ "$args" == *'--profile *'* || "$args" == *'--profile background'* ]]; then echo worker; fi
+    exit 0 ;;
   *'config --quiet'|*' pull'*|*' ps') exit 0 ;;
   *' ps -q opensandbox-server') echo fixture-provider; exit 0 ;;
   *' ps -q '*) service="${*: -1}"; if jq -e --arg service "$service" '.[$service] != null' "$state" >/dev/null; then echo "fixture-$service"; fi; exit 0 ;;

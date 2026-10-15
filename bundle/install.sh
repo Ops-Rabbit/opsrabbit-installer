@@ -118,11 +118,14 @@ deploy_user="${OPSRABBIT_INSTALL_USER:-opsrabbit}"
 deploy_dir="${OPSRABBIT_INSTALL_DIR:-/opt/opsrabbit}"
 aws_region="${OPSRABBIT_AWS_REGION:-us-east-1}"
 ecr_registry="${OPSRABBIT_ECR_REGISTRY:-921870554228.dkr.ecr.us-east-1.amazonaws.com}"
-daemon_image="${OPSRABBIT_DAEMON_IMAGE:-opsrabbit-release:unconfigured}"
-web_image="${OPSRABBIT_WEB_IMAGE:-opsrabbit-release:unconfigured}"
+if [[ -v OPSRABBIT_DAEMON_IMAGE || -v OPSRABBIT_WEB_IMAGE ]]; then
+  echo "Independent backend/web image overrides are unsupported. Select a matched product release with opsrabbitctl update --version." >&2
+  exit 1
+fi
+daemon_image=opsrabbit-release:unconfigured
+web_image=opsrabbit-release:unconfigured
 web_port="${OPSRABBIT_WEB_PORT:-3000}"
 env_path="${deploy_dir}/.env"
-configured_registry="$(read_existing_env ECR_REGISTRY)"
 configured_sandbox_image="$(read_existing_env OPSRABBIT_SANDBOX_IMAGE)"
 configured_opensandbox_port="$(read_existing_env OPENSANDBOX_PORT)"
 sandbox_image="${configured_sandbox_image:-${OPSRABBIT_SANDBOX_IMAGE:-opsrabbit-release:unconfigured}}"
@@ -146,8 +149,7 @@ echo "Configuration summary"
 echo "  User: ${deploy_user}"
 echo "  Directory: ${deploy_dir}"
 echo "  Registry: ${ecr_registry}"
-echo "  Backend: ${daemon_image}"
-echo "  Web: ${web_image}"
+echo "  Product release: newest stable version (backend and web together)"
 echo "  Sandbox: ${sandbox_image}"
 echo "  OpenSandbox port: 127.0.0.1:${opensandbox_port}"
 echo "  Docker: latest stable Engine, Buildx, and Compose from Docker's official apt repository"
@@ -159,6 +161,12 @@ fi
 echo "  Origin: ${public_origin}"
 echo
 if ! yes_no "Continue" "yes"; then exit 0; fi
+if [[ -f "${env_path}" || -f "${deploy_dir}/docker-compose.yml" ]]; then
+  if ! yes_no "Have you backed up PostgreSQL and deployment configuration before this upgrade?" "no"; then
+    echo "Back up the existing deployment before continuing, or use migrate.sh --backup-confirmed." >&2
+    exit 1
+  fi
+fi
 
 if ! command -v apt-get >/dev/null 2>&1; then
   echo "This installer currently supports Debian and Ubuntu hosts with apt-get." >&2
@@ -232,6 +240,7 @@ echo "[Installer 4/4] Configure AWS authentication, verify image access, and sta
 OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl auth configure
 OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl deploy --adopt --backup-confirmed
 OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl health
+sandbox_image="$(read_existing_env OPSRABBIT_SANDBOX_IMAGE)"
 
 echo
 echo "OpsRabbit is running at ${public_origin}"

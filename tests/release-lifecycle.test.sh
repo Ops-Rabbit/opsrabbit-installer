@@ -29,6 +29,25 @@ printf 'profile\nfixture\n' > "$test_root/deploy/.aws-auth"
 printf 'customer compose preserved\n' > "$test_root/deploy/docker-compose.yml"
 export PATH="$test_root/bin:$PATH" TEST_RELEASE_ROOT="$test_root" OPSRABBIT_DEPLOY_DIR="$test_root/deploy"
 ctl="$repo_root/bundle/opsrabbitctl"
+# A declined backup confirmation on an existing install must precede host setup.
+cat > "$test_root/bin/uname" <<'UNAME'
+#!/bin/sh
+echo x86_64
+UNAME
+cat > "$test_root/bin/apt-get" <<'APT'
+#!/bin/sh
+touch "$TEST_RELEASE_ROOT/host-setup-started"
+exit 88
+APT
+chmod +x "$test_root/bin/uname" "$test_root/bin/apt-get"
+if printf 'yes\nno\n' | OPSRABBIT_INPUT_DEVICE=/dev/stdin OPSRABBIT_INSTALL_DIR="$OPSRABBIT_DEPLOY_DIR" "$repo_root/bundle/install.sh" > "$test_root/output" 2>&1; then exit 1; fi
+[[ ! -e "$test_root/host-setup-started" && ! -e "$test_root/lifecycle.log" ]]
+# An independently selected application image must be rejected before setup.
+for image_setting in OPSRABBIT_DAEMON_IMAGE OPSRABBIT_WEB_IMAGE; do
+  if printf 'yes\n' | env OPSRABBIT_INPUT_DEVICE=/dev/stdin OPSRABBIT_INSTALL_DIR="$OPSRABBIT_DEPLOY_DIR" "$image_setting=customer.invalid/application:v9.0.0" "$repo_root/bundle/install.sh" > "$test_root/output" 2>&1; then exit 1; fi
+  grep -q 'Independent backend/web image overrides are unsupported' "$test_root/output"
+  [[ ! -e "$test_root/host-setup-started" && ! -e "$test_root/lifecycle.log" ]]
+done
 # A candidate pull failure must leave all services and config untouched.
 cp "$OPSRABBIT_DEPLOY_DIR/.env" "$test_root/original.env"
 if TEST_FAILURE=pull "$ctl" deploy --adopt --backup-confirmed > "$test_root/output" 2>&1; then exit 1; fi

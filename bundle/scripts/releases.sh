@@ -117,9 +117,9 @@ release_deploy() {
     esac
   fi
   if [[ -f "${release_dir}/pending.json" ]]; then worker_running="$(jq -r '._deployment.worker_was_running // false' "${release_dir}/pending.json")"; fi
-  if docker compose --env-file "${env_file}" -f "${compose_file}" --profile worker-split config --services | grep -Fxq worker; then
+  if docker compose --env-file "${env_file}" -f "${compose_file}" --profile '*' config --services | grep -Fxq worker; then
     worker_defined=true
-    worker_id="$(docker compose --env-file "${env_file}" -f "${compose_file}" --profile worker-split ps -q worker)"
+    worker_id="$(docker compose --env-file "${env_file}" -f "${compose_file}" --profile '*' ps -q worker)"
     if [[ -n "${worker_id}" && "$(docker inspect --format '{{.State.Running}}' "${worker_id}")" == true ]]; then worker_running=true; fi
   fi
   for image in "$(jq -r .images.backend "${release_candidate}")" "$(jq -r .images.frontend "${release_candidate}")"; do
@@ -142,7 +142,7 @@ release_deploy() {
   mv -- "${pending_file}" "${release_dir}/pending.json"
   release_started=true
   "${compose[@]}" stop web
-  if [[ "${worker_running}" == true ]]; then docker compose --env-file "${env_file}" -f "${compose_file}" --profile worker-split stop worker; fi
+  if [[ "${worker_running}" == true ]]; then docker compose --env-file "${env_file}" -f "${compose_file}" --profile '*' stop worker; fi
   "${compose[@]}" stop daemon
   release_update_env "${release_candidate}"
   sandbox_image="$(read_env OPSRABBIT_SANDBOX_IMAGE)"
@@ -151,7 +151,7 @@ release_deploy() {
   "${compose[@]}" up -d --no-build --wait daemon
   if [[ "${worker_running}" == true ]]; then
     # Worker uses exactly the daemon image; stopped optional workers remain stopped.
-    docker compose --env-file "${env_file}" -f "${compose_file}" -f "${override}" --profile worker-split up -d --no-build --wait worker
+    docker compose --env-file "${env_file}" -f "${compose_file}" -f "${override}" --profile '*' up -d --no-build --wait worker
   fi
   "${compose[@]}" up -d --no-build --wait web
   if ! release_verify "${release_candidate}"; then
