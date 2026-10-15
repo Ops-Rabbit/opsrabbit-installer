@@ -69,11 +69,16 @@ auth_identity() {
   printf 'Selected AWS identity\n  Account: %s\n  Role/user: %s\n' "${account}" "${arn}"
 }
 
+auth_open_terminal() {
+  exec {auth_input}<"${OPSRABBIT_INPUT_DEVICE:-/dev/tty}"
+}
+
 auth_open_input() {
-  if ! { exec {auth_input}<>"${OPSRABBIT_INPUT_DEVICE:-/dev/tty}"; } 2>/dev/null; then
-    echo "Authentication needs an interactive terminal. Run: opsrabbitctl auth login" >&2
-    return 1
+  if auth_open_terminal 2>/dev/null; then
+    return 0
   fi
+  echo "Authentication needs an interactive terminal. Run: opsrabbitctl auth login" >&2
+  return 1
 }
 
 auth_read() {

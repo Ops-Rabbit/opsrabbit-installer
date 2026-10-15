@@ -91,7 +91,7 @@ case "$*" in
     [[ "$token" == fixture-ecr-token ]] || exit 1
     ;;
   'manifest inspect '*)
-    if [[ "${TEST_FAILURE:-}" == manifest && "$*" == *'/web:test' ]]; then
+    if [[ "${TEST_FAILURE:-}" == manifest && ( "$*" == *'/web:test' || "$*" == *'/vg-webapp:v'* ) ]]; then
       echo 'Access denied to web image' >&2; exit 1
     fi
     echo '{"schemaVersion":2}'
@@ -118,7 +118,10 @@ failure=""
 renew=""
 replacement=""
 browser_session=original
+bash "${repo_root}/tests/release-fixture.sh" "${test_root}" "${test_root}/bin"
+export TEST_RELEASE_ROOT="${test_root}"
 run_ctl() {
+  if [[ "${1:-}" == deploy || "${1:-}" == update ]]; then set -- "$@" --adopt --backup-confirmed; fi
   : > "${log}"
   : > "${log}.docker-configs"
   HOME="${test_root}/home" PATH="${test_root}/bin:${PATH}" \

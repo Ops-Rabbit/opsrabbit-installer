@@ -62,13 +62,13 @@ The installer asks for:
 - confirmation before changing the host
 - an explicit AWS authentication method for the private images
 
-The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us-east-1`), ECR registry, backend and web `latestv2` deployment tags, `vg-sandbox:latest` sandbox image, OpenSandbox port (`8080` on loopback), and web port (`3000`) use the OpsRabbit defaults. AWS authentication is explicitly selected even when the machine already has an EC2 role.
+The deployment user (`opsrabbit`), directory (`/opt/opsrabbit`), AWS region (`us-east-1`), ECR registry, matched backend/web version tags from one product release, the release-qualified sandbox image, OpenSandbox port (`8080` on loopback), and web port (`3000`) use the OpsRabbit defaults. AWS authentication is explicitly selected even when the machine already has an EC2 role.
 
 Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRABBIT_INSTALL_DIR`, `OPSRABBIT_AWS_REGION`, `OPSRABBIT_ECR_REGISTRY`, `OPSRABBIT_DAEMON_IMAGE`, `OPSRABBIT_WEB_IMAGE`, `OPSRABBIT_SANDBOX_IMAGE`, `OPENSANDBOX_PORT`, or `OPSRABBIT_WEB_PORT`.
 
 It configures Docker's official stable apt repository and installs or upgrades Docker Engine, Buildx, and Compose to that repository's latest candidate. When migrating from distribution-provided Docker packages, their removal can briefly interrupt running containers, but Docker data in `/var/lib/docker` is preserved. It also installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it installs the browser-specific AppArmor policy and uses Ubuntu's packaged Bubblewrap policy for ordinary commands when available, otherwise installing the bundled fallback. Policy changes are rolled back if installation fails. It does not disable the host-wide restriction or require a reboot. This also removes an unchanged conflicting fallback left by installer `v1.3.0` on Ubuntu 26.04.
 
-Use immutable image tags or digests for production rather than `latest`.
+Product releases use immutable version tags. Floating image aliases are not used. Published installer v1.3.4 assets remain unchanged; the versioned-release functionality in this source tree requires a new installer release before use.
 
 ## AWS authentication
 
@@ -102,12 +102,12 @@ opsrabbitctl status
 opsrabbitctl logs
 opsrabbitctl logs daemon
 opsrabbitctl health
-opsrabbitctl update
+opsrabbitctl update --backup-confirmed
 opsrabbitctl stop
 opsrabbitctl start
 ```
 
-`opsrabbitctl update` logs in to ECR, pre-pulls the configured sandbox image, pulls the service image tags, gracefully stops the backend while OpenSandbox remains available for managed-sandbox cleanup, recreates changed containers, waits for health checks, and prints status. `stop` and `restart` use the same cleanup ordering. `opsrabbitctl health` also verifies OpenSandbox authentication and confirms that the configured sandbox image is present.
+`opsrabbitctl update --backup-confirmed` selects the highest complete stable product release, validates its paired version manifest and selected AWS access, pulls all candidate images, stops web before the backend, waits for the new daemon and workers, then starts and verifies the matched web image. OpenSandbox remains available during backend shutdown for managed-sandbox cleanup. A failed update keeps web stopped and records the pending version for explicit recovery. `stop` and `restart` use the same cleanup ordering. `opsrabbitctl health` also verifies OpenSandbox authentication and confirms that the configured sandbox image is present.
 
 Configuration is stored at `/opt/opsrabbit/.env` by default. Back it up securely. Never regenerate `OPSRABBIT_NODE_ENCRYPTION_KEY`; doing so makes previously stored encrypted credentials unreadable.
 
@@ -168,12 +168,42 @@ The workload image must contain the root-owned native Bubblewrap copy at `/opt/o
 
 ## Re-running the installer
 
-The installer preserves an existing `.env` so that application secrets are not rotated accidentally. Upgrading from an older installer adds only missing OpenSandbox settings and generates its API key once. To change image tags or the public URL, edit `.env` deliberately and run:
+The installer preserves an existing `.env` so that application secrets are not rotated accidentally. Use an explicit product version with `opsrabbitctl update --version vX.Y.Z --backup-confirmed` to choose application images; the manifest owns managed image references. Do not edit those references independently.
 
-```bash
-opsrabbitctl update
-```
+For a URL-only change, preserve the image pins and edit the relevant URL setting, then recreate the affected service using the installed override, for example `docker compose --env-file .env -f docker-compose.yml -f .release/current.compose.json up -d --no-build --wait daemon web` from the deployment directory while no release operation is running. A plain `update` also selects the newest product release and is not a URL-only operation.
 
 ## License
 
 Licensed under the [Apache License 2.0](LICENSE).
+
+## Adopt versioned product releases on an existing customer host
+
+Back up PostgreSQL and `/opt/opsrabbit` configuration, including encryption keys, authentication selection and sandbox policies. Download a concrete **new installer release** containing `migrate.sh`, verify its published archive checksum, extract it and review the migration. Existing v1.3.4 downloads do not contain this migration.
+
+From the extracted bundle:
+
+```bash
+sudo ./migrate.sh --backup-confirmed
+# Or select an exact product release:
+sudo ./migrate.sh --backup-confirmed --version v1.1.1
+```
+
+For a nonstandard directory, pass the existing `OPSRABBIT_DEPLOY_DIR` through sudo explicitly. Migration backs up the old helper and `.env` once in `.release-migration-backup` (restricted to the deployment owner), installs the new helper and authentication/release libraries, and adopts a complete product release. It does not replace your Compose/TOML files, public URL, secrets or volumes. Keep the backup until the migration is verified, then remove that specific backup directory as an administrator according to your configuration-backup policy.
+
+OpenSandbox must already use the documented 1.1.1 server/execd/egress pins and the required host AppArmor policy. The migration preserves provider configuration; verify compatibility before running it, and complete the provider/browser upgrade sections first. Legacy hosts without `.aws-auth` must explicitly choose their deployment identity. A successful AWS identity check alone does not prove image access; candidate manifest and layer pulls are required before maintenance.
+
+Application startup performs its normal database migrations. Historical OpsRabbit sandbox aliases become the sandbox pin baked into the selected backend release; custom sandbox image values and enablement remain unchanged. Existing sandbox containers must retire before using a changed image. Do not automatically downgrade binaries after a database migration; use the release-compatible backup/recovery procedure.
+
+## Product release selection and recovery
+
+The first product version is `v1.1.1`; the application build workflow reserves a new patch version per run by default. Release operators can choose minor or major. Backend/frontend share the version and source revision. Installer versions are separate. Product release manifests live under `opsrabbit-vX.Y.Z` in this repository; automatic selection ignores installer `vX.Y.Z` tags, drafts and prereleases and compares SemVer numerically. Catalog failures leave the running deployment unchanged. Version reservations from failed builds are never published to customers.
+
+```bash
+opsrabbitctl status
+opsrabbitctl update --backup-confirmed
+opsrabbitctl update --version v1.1.2 --backup-confirmed
+```
+
+The helper stores current/previous/pending manifests under `.release` with private directory permissions and locks release operations. On interruption, `status` reports the pending release and start/restart refuses to bypass recovery. Resume with the **same** version and backup confirmation after investigating the failure. No automatic rollback is attempted; older versions are rejected because database compatibility cannot be inferred from an image tag.
+
+Updates require maintenance downtime. Put any external frontend proxy/cache into maintenance as well; stopping the Compose web service cannot invalidate a browser tab or an externally hosted frontend. All customer-facing serving must be restored only after the matched backend/frontend pair is verified. Restart/start does not discover a newer version. Image updates do not update helper code, Compose/TOML files or host policies; upgrade those separately when a release requires it.

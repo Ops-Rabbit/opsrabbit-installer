@@ -118,14 +118,14 @@ deploy_user="${OPSRABBIT_INSTALL_USER:-opsrabbit}"
 deploy_dir="${OPSRABBIT_INSTALL_DIR:-/opt/opsrabbit}"
 aws_region="${OPSRABBIT_AWS_REGION:-us-east-1}"
 ecr_registry="${OPSRABBIT_ECR_REGISTRY:-921870554228.dkr.ecr.us-east-1.amazonaws.com}"
-daemon_image="${OPSRABBIT_DAEMON_IMAGE:-${ecr_registry}/vg-backend:latestv2}"
-web_image="${OPSRABBIT_WEB_IMAGE:-${ecr_registry}/vg-webapp:latestv2}"
+daemon_image="${OPSRABBIT_DAEMON_IMAGE:-opsrabbit-release:unconfigured}"
+web_image="${OPSRABBIT_WEB_IMAGE:-opsrabbit-release:unconfigured}"
 web_port="${OPSRABBIT_WEB_PORT:-3000}"
 env_path="${deploy_dir}/.env"
 configured_registry="$(read_existing_env ECR_REGISTRY)"
 configured_sandbox_image="$(read_existing_env OPSRABBIT_SANDBOX_IMAGE)"
 configured_opensandbox_port="$(read_existing_env OPENSANDBOX_PORT)"
-sandbox_image="${configured_sandbox_image:-${OPSRABBIT_SANDBOX_IMAGE:-${configured_registry:-${ecr_registry}}/vg-sandbox:latest}}"
+sandbox_image="${configured_sandbox_image:-${OPSRABBIT_SANDBOX_IMAGE:-opsrabbit-release:unconfigured}}"
 opensandbox_port="${configured_opensandbox_port:-${OPENSANDBOX_PORT:-8080}}"
 restricted_userns=false
 if [[ -r /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]] \
@@ -167,7 +167,7 @@ fi
 
 echo "[Installer 2/4] Installing and verifying host prerequisites..."
 apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl openssl unzip
+DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl openssl unzip jq util-linux
 if [[ "${restricted_userns}" == true ]] && ! command -v apparmor_parser >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get install -y apparmor
 fi
@@ -185,6 +185,7 @@ install -m 0640 -o "${deploy_user}" -g "${deploy_user}" "${script_dir}/opensandb
 install -m 0755 -o root -g root "${script_dir}/opsrabbitctl" /usr/local/bin/opsrabbitctl
 install -d -m 0755 -o root -g root /usr/local/lib/opsrabbit
 install -m 0644 -o root -g root "${script_dir}/scripts/aws-auth.sh" /usr/local/lib/opsrabbit/aws-auth.sh
+install -m 0644 -o root -g root "${script_dir}/scripts/releases.sh" /usr/local/lib/opsrabbit/releases.sh
 
 if [[ -e "${env_path}" ]]; then
   echo "Preserving existing ${env_path}; image and URL settings were not overwritten."
@@ -229,7 +230,7 @@ echo "[Installer 4/4] Configure AWS authentication, verify image access, and sta
 # The helper handles deployment-user routing and owns the same authentication flow
 # used for every later login, deploy and update. Never auto-select a host identity.
 OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl auth configure
-OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl deploy
+OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl deploy --adopt --backup-confirmed
 OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl health
 
 echo

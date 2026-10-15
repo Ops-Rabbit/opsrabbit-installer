@@ -37,6 +37,16 @@ fi
 # such as /root when this helper is invoked through the root installer.
 cd "${deploy_dir}"
 
+release_dir="${deploy_dir}/.release"
+case "${1:-}" in
+  deploy|update|start|stop|restart|auth|login)
+    command -v flock >/dev/null || { echo "Install util-linux before changing services or authentication." >&2; exit 1; }
+    install -d -m 0700 "${release_dir}"
+    exec {release_lock}>"${release_dir}/lock"
+    flock -n "${release_lock}" || { echo "Another release or service operation is running." >&2; exit 1; }
+    ;;
+esac
+
 read_env() {
   local key="$1" value
   value="$(sed -n "s/^${key}=//p" "${env_file}" | tail -n 1)"
@@ -55,6 +65,7 @@ sandbox_image="$(read_env OPSRABBIT_SANDBOX_IMAGE)"
 opensandbox_port="$(read_env OPENSANDBOX_PORT)"
 opensandbox_api_key="$(read_env OPENSANDBOX_SERVER_API_KEY)"
 
+unset OPSRABBIT_DAEMON_IMAGE OPSRABBIT_WEB_IMAGE OPSRABBIT_SANDBOX_IMAGE
 compose=(docker compose --env-file "${env_file}" -f "${compose_file}")
 docker_config_dir=""
 auth_candidate=""
@@ -62,6 +73,11 @@ auth_browser_candidate=""
 auth_state_candidate=""
 
 cleanup() {
+  if [[ "${release_started:-false}" == true && -f "${release_dir}/pending.json" ]]; then
+    echo "Release incomplete; web remains stopped until the pending release is recovered." >&2
+    "${compose[@]}" stop web || echo "Could not stop web; isolate frontend serving before recovery." >&2
+  fi
+  if [[ -n "${release_candidate:-}" ]]; then rm -f -- "${release_candidate}" "${release_candidate}.compose.json" "${release_candidate}.compose.json.worker" "${release_candidate}.compose.json.current"; fi
   if [[ -n "${docker_config_dir}" && -d "${docker_config_dir}" ]]; then
     rm -rf "${docker_config_dir}"
   fi
@@ -77,6 +93,16 @@ auth_library="$(dirname "${helper_path}")/scripts/aws-auth.sh"
 if [[ ! -f "${auth_library}" ]]; then auth_library=/usr/local/lib/opsrabbit/aws-auth.sh; fi
 # shellcheck source=scripts/aws-auth.sh
 source "${auth_library}"
+release_library="$(dirname "${helper_path}")/scripts/releases.sh"
+if [[ ! -f "${release_library}" ]]; then release_library=/usr/local/lib/opsrabbit/releases.sh; fi
+# shellcheck source=scripts/releases.sh
+source "${release_library}"
+if [[ -f "${release_dir}/current.json" && "${1:-}" != update && "${1:-}" != deploy ]]; then
+  [[ -f "${release_dir}/current.compose.json" ]] || { echo "Installed release override is missing; resume the selected version with update." >&2; exit 1; }
+  compose+=( -f "${release_dir}/current.compose.json" )
+fi
+
+
 
 ecr_login() {
   local login_output
@@ -106,6 +132,10 @@ auth_validate() {
   echo "Checking access to required image manifests..."
   for image_key in OPSRABBIT_DAEMON_IMAGE OPSRABBIT_WEB_IMAGE OPSRABBIT_SANDBOX_IMAGE; do
     image="$(read_env "${image_key}")" || return 1
+    if [[ "${image}" == opsrabbit-release:unconfigured ]]; then
+      echo "Product images will be checked after release selection."
+      continue
+    fi
     if ! docker manifest inspect "${image}" >/dev/null; then
       echo "Cannot read image ${image}. Check image existence and ECR pull permissions for the identity above." >&2
       return 1
@@ -165,15 +195,11 @@ case "${1:-}" in
     authenticate
     ;;
   deploy|update)
-    authenticate
-    docker pull "${sandbox_image}"
-    "${compose[@]}" pull
-    # Keep OpenSandbox available while the backend retires its managed sandboxes.
-    "${compose[@]}" stop daemon
-    start_services remove-orphans
-    "${compose[@]}" ps
+    shift
+    release_deploy "$@"
     ;;
   start)
+    [[ ! -f "${release_dir}/pending.json" ]] || { echo "Resume the pending release before starting services." >&2; exit 1; }
     start_services
     ;;
   stop)
@@ -181,10 +207,14 @@ case "${1:-}" in
     "${compose[@]}" stop
     ;;
   restart)
+    [[ ! -f "${release_dir}/pending.json" ]] || { echo "Resume the pending release before restarting." >&2; exit 1; }
     "${compose[@]}" stop daemon
     "${compose[@]}" restart
     ;;
   status)
+    for state in current pending; do
+      if [[ -f "${release_dir}/${state}.json" ]]; then echo "${state}: $(jq -r .version "${release_dir}/${state}.json")"; fi
+    done
     "${compose[@]}" ps
     ;;
   logs)
@@ -211,7 +241,7 @@ case "${1:-}" in
     echo "OpenSandbox health, authentication, and sandbox image checks passed."
     ;;
   *)
-    echo "Usage: opsrabbitctl {auth {configure|login|status}|login|deploy|update|start|stop|restart|status|logs [service]|health}" >&2
+    echo "Usage: opsrabbitctl update [--version vX.Y.Z] --backup-confirmed | deploy --adopt --backup-confirmed | {auth {configure|login|status}|login|deploy|update|start|stop|restart|status|logs [service]|health}" >&2
     exit 2
     ;;
 esac
