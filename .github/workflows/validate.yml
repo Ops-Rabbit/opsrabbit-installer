@@ -15,9 +15,15 @@ jobs:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
       - name: Validate shell scripts
         run: |
-          for script in install.sh bundle/install.sh bundle/opsrabbitctl bundle/scripts/*.sh tests/*.sh; do
+          for script in install.sh bundle/install.sh bundle/opsrabbitctl bundle/migrate.sh bundle/scripts/*.sh tests/*.sh; do
             bash -n "$script"
           done
+      - name: Test release discovery and failed upgrades
+        run: bash tests/releases.test.sh
+      - name: Test release migration and recovery in isolation
+        run: |
+          docker run --rm -v "$PWD:/work:ro" -w /work ubuntu:24.04 bash -c \
+            'apt-get update -qq && apt-get install -y -qq jq >/dev/null && bash tests/release-lifecycle.test.sh'
       - name: Test operations helper
         run: bash tests/opsrabbitctl.test.sh
       - name: Test AWS authentication
@@ -25,7 +31,7 @@ jobs:
       - name: Test authentication user routing in isolation
         run: |
           docker run --rm -v "$PWD:/work:ro" -w /work ubuntu:24.04 bash -c \
-            'apt-get update -qq && apt-get install -y -qq sudo python3 >/dev/null && python3 tests/auth-user-routing.test.py'
+            'apt-get update -qq && apt-get install -y -qq sudo python3 jq >/dev/null && python3 tests/auth-user-routing.test.py'
       - name: Test Docker installation
         run: sudo bash tests/docker-install.test.sh
       - name: Test AppArmor installation
@@ -56,6 +62,8 @@ jobs:
           grep -Fx './opensandbox-config.toml' archive-contents.txt
           grep -Fx './scripts/install-docker.sh' archive-contents.txt
           grep -Fx './scripts/aws-auth.sh' archive-contents.txt
+          grep -Fx './scripts/releases.sh' archive-contents.txt
+          grep -Fx './migrate.sh' archive-contents.txt
           grep -Fx './scripts/install-opensandbox-apparmor.sh' archive-contents.txt
           grep -Fx './deploy/apparmor/opsrabbit-opensandbox-bwrap' archive-contents.txt
           grep -Fx './deploy/apparmor/opsrabbit-opensandbox-browser' archive-contents.txt

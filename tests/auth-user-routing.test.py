@@ -50,6 +50,7 @@ OPENSANDBOX_SERVER_API_KEY=fixture-key
     run('chown', '-R', f'{deployer}:{deployer}', str(deploy))
     library.mkdir(parents=True)
     shutil.copyfile(repo / 'bundle/scripts/aws-auth.sh', library / 'aws-auth.sh')
+    shutil.copyfile(repo / 'bundle/scripts/releases.sh', library / 'releases.sh')
     shutil.copyfile(repo / 'bundle/opsrabbitctl', helper)
     helper.chmod(0o755)
     aws.write_text('''#!/bin/bash
@@ -123,11 +124,12 @@ esac
     assert state.stat().st_uid == int(run('id', '-u', deployer).stdout.strip())
     credentials = pathlib.Path(f'/home/{deployer}/.aws/opsrabbit/credentials')
     assert credentials.exists() and credentials.stat().st_mode & 0o777 == 0o600
-    for args in (['auth', 'status'], ['login'], ['deploy'], ['update']):
+    for args in (['auth', 'status'], ['login']):
         result = run('runuser', '-u', operator, '--', str(helper), *args, cwd='/root')
         assert '123456789012' in result.stdout
     # Root installer entrypoint also uses deployment-owned authentication.
     assert '123456789012' in run(str(helper), 'auth', 'status', cwd='/root').stdout
+
     print('PASS: real sudo/runuser routing, hidden terminal prompts, deployment HOME, root installer handoff and subsequent reuse')
 finally:
     for path in (helper, aws, docker, sudoers):

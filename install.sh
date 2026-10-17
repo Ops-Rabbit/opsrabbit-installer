@@ -2,21 +2,19 @@
 set -euo pipefail
 
 repository="Ops-Rabbit/opsrabbit-installer"
-default_version="latest"
+default_version=""
 version="${OPSRABBIT_INSTALLER_VERSION:-${default_version}}"
 archive="opsrabbit-aws-image-bundle.tar.gz"
 checksum="${archive}.sha256"
 
 if [[ "${EUID}" -ne 0 ]]; then
-  echo "Run as root, for example: curl -fsSL https://github.com/${repository}/releases/latest/download/install.sh | sudo bash" >&2
+  echo "Run as root, for example: curl -fsSL https://github.com/${repository}/releases/download/<installer-version>/install.sh | sudo bash" >&2
   exit 1
 fi
 
-if [[ "${version}" == "latest" ]]; then
-  release_url="https://github.com/${repository}/releases/latest/download"
-else
-  release_url="https://github.com/${repository}/releases/download/${version}"
-fi
+[[ -n "${version}" ]] || { echo "Select an installer release with OPSRABBIT_INSTALLER_VERSION, or use its versioned install.sh download." >&2; exit 1; }
+[[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Expected a concrete installer version." >&2; exit 1; }
+release_url="https://github.com/${repository}/releases/download/${version}"
 
 temporary_dir="$(mktemp -d)"
 cleanup() { rm -rf "${temporary_dir}"; }

@@ -73,30 +73,33 @@ exit 1
 EOF
 chmod +x "${stub_bin}/curl"
 
+bash "${repo_root}/tests/release-fixture.sh" "${test_root}" "${stub_bin}"
+export TEST_RELEASE_ROOT="${test_root}"
 output="$(
   cd "${test_root}"
   PATH="${stub_bin}:${PATH}" \
     OPSRABBIT_DEPLOY_DIR="${deploy_dir}" \
     OPSRABBIT_TEST_COMMAND_LOG="${command_log}" \
-    "${repo_root}/bundle/opsrabbitctl" deploy
+    "${repo_root}/bundle/opsrabbitctl" deploy --adopt --backup-confirmed
 )"
 
+sed -E -i 's/ -f [^ ]*candidate\.[^ ]*\.compose\.json//g' "${command_log}"
 grep -Fq "ECR login succeeded using a temporary Docker credential file." <<<"${output}"
 if grep -Fq "stored unencrypted" <<<"${output}"; then
   echo "Docker's persistent-credential warning leaked into successful output." >&2
   exit 1
 fi
-grep -Fq "|pull 123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:test" "${command_log}"
+grep -Fq "|pull --platform linux/amd64 123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:v1.0.0" "${command_log}"
 grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml pull" "${command_log}"
 grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml stop daemon" "${command_log}"
-grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --remove-orphans opensandbox-server" "${command_log}"
+grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build opensandbox-server" "${command_log}"
 grep -Fq "|network connect bridge opensandbox-test-container" "${command_log}"
-grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --remove-orphans --wait" "${command_log}"
+grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --wait web" "${command_log}"
 
 pull_line="$(grep -nF "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml pull" "${command_log}" | cut -d: -f1)"
 daemon_stop_line="$(grep -nF "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml stop daemon" "${command_log}" | cut -d: -f1)"
 bridge_connect_line="$(grep -nF "|network connect bridge opensandbox-test-container" "${command_log}" | cut -d: -f1)"
-up_line="$(grep -nF "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --remove-orphans --wait" "${command_log}" | cut -d: -f1)"
+up_line="$(grep -nF "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --wait web" "${command_log}" | cut -d: -f1)"
 [[ "${pull_line}" -lt "${daemon_stop_line}" && "${daemon_stop_line}" -lt "${bridge_connect_line}" && "${bridge_connect_line}" -lt "${up_line}" ]]
 
 while IFS='|' read -r command_pwd docker_config command_args; do
@@ -132,8 +135,8 @@ grep -Fq "|image inspect 123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox
     OPSRABBIT_TEST_COMMAND_LOG="${command_log}" \
     "${repo_root}/bundle/opsrabbitctl" stop
 )
-[[ "$(sed -n '1s/^[^|]*|[^|]*|//p' "${command_log}")" == "compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml stop daemon" ]]
-[[ "$(sed -n '2s/^[^|]*|[^|]*|//p' "${command_log}")" == "compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml stop" ]]
+[[ "$(sed -n '1s/^[^|]*|[^|]*|//p' "${command_log}")" == "compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml -f ${deploy_dir}/.release/current.compose.json stop daemon" ]]
+[[ "$(sed -n '2s/^[^|]*|[^|]*|//p' "${command_log}")" == "compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml -f ${deploy_dir}/.release/current.compose.json stop" ]]
 
 : > "${command_log}"
 (
@@ -143,7 +146,11 @@ grep -Fq "|image inspect 123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox
     OPSRABBIT_TEST_COMMAND_LOG="${command_log}" \
     "${repo_root}/bundle/opsrabbitctl" restart
 )
-[[ "$(sed -n '1s/^[^|]*|[^|]*|//p' "${command_log}")" == "compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml stop daemon" ]]
-[[ "$(sed -n '2s/^[^|]*|[^|]*|//p' "${command_log}")" == "compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml restart" ]]
+[[ "$(sed -n '1s/^[^|]*|[^|]*|//p' "${command_log}")" == "compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml -f ${deploy_dir}/.release/current.compose.json stop daemon" ]]
+[[ "$(sed -n '2s/^[^|]*|[^|]*|//p' "${command_log}")" == "compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml -f ${deploy_dir}/.release/current.compose.json restart" ]]
 
+grep -Fxq 'OPENSANDBOX_SERVER_API_KEY=test-open-sandbox-key' "${deploy_dir}/.env"
+[[ "$(jq -r .version "${deploy_dir}/.release/current.json")" == v1.1.1 ]]
+[[ ! -e "${deploy_dir}/.release/pending.json" ]]
+! grep -Eq ':(latest|latestv2)$' "${deploy_dir}/.env"
 echo "opsrabbitctl regression test passed."

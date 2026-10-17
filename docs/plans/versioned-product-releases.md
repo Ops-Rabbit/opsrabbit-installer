@@ -1,0 +1,11 @@
+# Versioned installer releases
+
+Scope: select one product manifest for matched backend/frontend/worker versions, default to highest stable SemVer, and provide a one-time migrate.sh entrypoint for existing customers. Product versions begin at v1.1.1; installer versions remain separate. No moving image aliases or digest-reference inputs. No deployment, release publication or paid CI.
+
+Migration requires operator-confirmed PostgreSQL/configuration backups and preserves Compose/TOML, secrets, custom sandbox pins and data. Pull before maintenance; stop frontend/worker before backend migration, restore the matched services afterward. A shared lock and private current/pending state allow interrupted updates to resume the exact version. Reject unsafe downgrades. No product grants, customer data stores or retention behavior changes.
+
+Keep runtime work in the existing installer/helper plus a sourced release library and migration entrypoint. Published installer assets embed their installer version; source bootstrap requires an explicit version. Remove duplicate manifest probes, one-use override transformations, write-only previous state and redundant automatic backups. Keep existing authentication implementation and dependency tooling.
+
+Prior art: reviewed [claude-code updater](https://github.com/applied-ai-consulting/claude-code/blob/dfb44640ca1c2b64b882a15edf73ec0374d41d9a/utils/autoUpdater.ts) for explicit current/target diagnostics and [Codex release workflow](https://github.com/openai/codex/blob/3ee47c10513f1bb57d869ea650aba28638e3d11c/.github/workflows/rust-release.yml) for publication after complete builds. Reuse SemVer ordering and staged assets; omit mutable channels and unrelated packaging.
+
+Verification: shell/workflow syntax, existing CLI/auth/user-routing suites, catalog validation and stateful migration/recovery fixtures in disposable Linux containers. Keep distinct pull-failure, custom configuration, worker-intent and lock regressions. Run independent review and the pinned strict security scan; report unrelated baseline findings without expanding scope. Publish PR as ghaaic only.
