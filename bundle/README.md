@@ -176,7 +176,7 @@ sudo ./migrate.sh --backup-confirmed
 sudo ./migrate.sh --backup-confirmed --version v1.1.1
 ```
 
-For a nonstandard directory, pass the existing `OPSRABBIT_DEPLOY_DIR` through sudo explicitly. Migration installs the new helper and authentication/release libraries and adopts a complete product release. The required PostgreSQL/configuration backup remains the operator's responsibility. It does not replace your Compose/TOML files, public URL, secrets or volumes.
+For a nonstandard directory, pass the existing `OPSRABBIT_DEPLOY_DIR` through sudo explicitly. Migration installs the new helper and authentication/release libraries and adopts a complete product release. Hosts with an earlier versioned-release helper must also refresh it from this new bundle to switch discovery from GitHub to S3; updating application images alone does not update the helper. The required PostgreSQL/configuration backup remains the operator's responsibility. It does not replace your Compose/TOML files, public URL, secrets or volumes.
 
 OpenSandbox must already use the documented 1.1.1 server/execd/egress pins and the required host AppArmor policy. The migration preserves provider configuration; verify compatibility before running it, and complete the provider/browser upgrade sections first. Legacy hosts without `.aws-auth` must explicitly choose their deployment identity. A successful AWS identity check alone does not prove image access; candidate image pulls are required before maintenance.
 
@@ -184,7 +184,7 @@ Application startup performs its normal database migrations. Historical OpsRabbi
 
 ## Product release selection and recovery
 
-The first product version is `v1.1.1`; the application build workflow reserves a new patch version per run by default. Release operators can choose minor or major. Backend/frontend share the version and source revision. Installer versions are separate. Product release manifests live under `opsrabbit-vX.Y.Z` in this repository; automatic selection ignores installer `vX.Y.Z` tags, drafts and prereleases and compares SemVer numerically. Catalog failures leave the running deployment unchanged. Version reservations from failed builds are never published to customers.
+The first product version is `v1.1.1`; the application build workflow reserves a new patch version per run by default. Release operators can choose minor or major. Backend/frontend share the version and source revision. Installer versions are separate. Product release metadata is served directly over S3 HTTPS: [`catalog.json`](https://opsrabbit-releases-921870554228-us-east-1.s3.us-east-1.amazonaws.com/releases/catalog.json) lists complete stable versions, and each manifest lives at `https://opsrabbit-releases-921870554228-us-east-1.s3.us-east-1.amazonaws.com/releases/vX.Y.Z/release.json`. Automatic selection compares SemVer numerically; exact selection must also be listed in the catalog. The publisher uploads the versioned manifest before adding its version to the catalog. An empty catalog means no product release is available. Metadata downloads need no AWS credentials; image pulls still use the selected ECR authentication. Installer archive releases remain separate. Catalog failures leave the running deployment unchanged. Version reservations from failed builds are never published to customers.
 
 ```bash
 opsrabbitctl status
