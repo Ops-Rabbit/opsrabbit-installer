@@ -23,21 +23,23 @@ release_discover() {
   if [[ -n "${requested}" && ! "${requested}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
     echo "Expected --version vMAJOR.MINOR.PATCH." >&2; return 1
   fi
+  while :; do
+    response="$(curl --fail --silent --show-error --location --max-time 30 --proto '=https' \
+      "https://api.github.com/repos/${release_repository}/releases?per_page=100&page=${page}")" || return 1
+    count="$(jq -er 'if type == "array" then length else error("Invalid catalog response") end' <<<"${response}")" || return 1
+    versions="$(jq -cn --argjson previous "${versions}" --argjson entries "${response}" '
+      $previous + [$entries[] | select(.draft == false and .prerelease == false) | .tag_name
+        | select(test("^opsrabbit-v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) | ltrimstr("opsrabbit-")]
+    ')" || return 1
+    [[ "${count}" -eq 100 ]] || break
+    page=$((page + 1))
+    [[ "${page}" -le 1000 ]] || { echo "Catalog exceeded page limit." >&2; return 1; }
+  done
   if [[ -z "${requested}" ]]; then
-    while :; do
-      response="$(curl --fail --silent --show-error --location --max-time 30 --proto '=https' \
-        "https://api.github.com/repos/${release_repository}/releases?per_page=100&page=${page}")" || return 1
-      count="$(jq -er 'if type == "array" then length else error("Invalid catalog response") end' <<<"${response}")" || return 1
-      versions="$(jq -cn --argjson previous "${versions}" --argjson entries "${response}" '
-        $previous + [$entries[] | select(.draft == false and .prerelease == false) | .tag_name
-          | select(test("^opsrabbit-v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) | ltrimstr("opsrabbit-")]
-      ')" || return 1
-      [[ "${count}" -eq 100 ]] || break
-      page=$((page + 1))
-      [[ "${page}" -le 1000 ]] || { echo "Catalog exceeded page limit." >&2; return 1; }
-    done
     requested="$(jq -er 'sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last // error("No complete stable product releases")' <<<"${versions}")" || return 1
   fi
+  jq -en --argjson versions "${versions}" --arg version "${requested}" '$versions | index($version) != null' >/dev/null \
+    || { echo "Requested version is not a published stable product release." >&2; return 1; }
   release_candidate="$(mktemp "${release_dir}/candidate.XXXXXX")" || return 1
   curl --fail --silent --show-error --location --max-time 30 --proto '=https' \
     "https://github.com/${release_repository}/releases/download/opsrabbit-${requested}/release.json" -o "${release_candidate}" || return 1

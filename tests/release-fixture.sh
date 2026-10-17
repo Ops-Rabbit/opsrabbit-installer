@@ -12,7 +12,7 @@ cat > "$fixture_bin/curl" <<'CURL'
 set -euo pipefail
 if [[ "$*" == *api.github.com* ]]; then
   [[ "${TEST_FAILURE:-}" != catalog ]] || exit 22
-  echo '[{"tag_name":"opsrabbit-v1.1.1","draft":false,"prerelease":false},{"tag_name":"v9.0.0","draft":false,"prerelease":false}]'
+  printf '[{"tag_name":"opsrabbit-v1.1.1","draft":false,"prerelease":%s},{"tag_name":"v9.0.0","draft":false,"prerelease":false}]\n' "${TEST_PRERELEASE:-false}"
 elif [[ "$*" == *'/release.json'* ]]; then
   while [[ "$1" != -o ]]; do shift; done
   cp "$TEST_RELEASE_ROOT/release.json" "$2"

@@ -24,6 +24,7 @@ release_discover
 [[ "$(jq -r .version "${release_candidate}")" == v1.1.1 ]]
 # Exact selection must agree with the downloaded manifest.
 if release_discover v1.1.2; then echo "Accepted wrong exact version" >&2; exit 1; fi
+if TEST_PRERELEASE=true release_discover v1.1.1; then echo "Accepted a prerelease" >&2; exit 1; fi
 if TEST_FAILURE=catalog release_discover; then echo "Accepted catalog failure" >&2; exit 1; fi
 jq '.version="v2.0.0"' "${test_root}/release.json" > "${release_dir}/current.json"
 if release_discover v1.1.1; then echo "Accepted an unsafe downgrade" >&2; exit 1; fi
