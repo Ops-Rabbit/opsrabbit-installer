@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Sourced by opsrabbitctl. JSON is data, never shell input.
-release_repository="Ops-Rabbit/opsrabbit-installer"
+release_catalog_url="https://opsrabbit-releases-921870554228-us-east-1.s3.us-east-1.amazonaws.com/releases"
 release_dir="${deploy_dir}/.release"
 release_candidate=""
 
@@ -19,22 +19,19 @@ release_validate() {
 }
 
 release_discover() {
-  local requested="${1:-}" page=1 count response versions="[]" version
+  local requested="${1:-}" response versions version
   if [[ -n "${requested}" && ! "${requested}" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
     echo "Expected --version vMAJOR.MINOR.PATCH." >&2; return 1
   fi
-  while :; do
-    response="$(curl --fail --silent --show-error --location --max-time 30 --proto '=https' \
-      "https://api.github.com/repos/${release_repository}/releases?per_page=100&page=${page}")" || return 1
-    count="$(jq -er 'if type == "array" then length else error("Invalid catalog response") end' <<<"${response}")" || return 1
-    versions="$(jq -cn --argjson previous "${versions}" --argjson entries "${response}" '
-      $previous + [$entries[] | select(.draft == false and .prerelease == false) | .tag_name
-        | select(test("^opsrabbit-v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")) | ltrimstr("opsrabbit-")]
-    ')" || return 1
-    [[ "${count}" -eq 100 ]] || break
-    page=$((page + 1))
-    [[ "${page}" -le 1000 ]] || { echo "Catalog exceeded page limit." >&2; return 1; }
-  done
+  response="$(curl --fail --silent --show-error --location --max-time 30 --proto '=https' \
+    "${release_catalog_url}/catalog.json")" || return 1
+  versions="$(jq -ec '
+    if .schema_version == 1 and (.versions | type == "array")
+      and all(.versions[]; type == "string" and test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$")
+        and (ltrimstr("v") | split(".") | map(tonumber) | all(.[]; . <= 9007199254740991)))
+      and ((.versions | unique | length) == (.versions | length))
+    then .versions else error("Invalid release catalog") end
+  ' <<<"${response}")" || return 1
   if [[ -z "${requested}" ]]; then
     requested="$(jq -er 'sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last // error("No complete stable product releases")' <<<"${versions}")" || return 1
   fi
@@ -42,7 +39,7 @@ release_discover() {
     || { echo "Requested version is not a published stable product release." >&2; return 1; }
   release_candidate="$(mktemp "${release_dir}/candidate.XXXXXX")" || return 1
   curl --fail --silent --show-error --location --max-time 30 --proto '=https' \
-    "https://github.com/${release_repository}/releases/download/opsrabbit-${requested}/release.json" -o "${release_candidate}" || return 1
+    "${release_catalog_url}/${requested}/release.json" -o "${release_candidate}" || return 1
   release_validate "${release_candidate}" || { echo "Invalid or unsupported product release manifest." >&2; return 1; }
   [[ "$(jq -r .version "${release_candidate}")" == "${requested}" ]] || return 1
   version="$(jq -r .version "${release_dir}/current.json" 2>/dev/null || true)"

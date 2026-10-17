@@ -22,9 +22,24 @@ jq '.images.frontend |= sub(":v1.1.1"; ":v1.1.2")' "${test_root}/release.json" >
 if release_validate "${test_root}/bad.json"; then echo "Accepted a mixed pair" >&2; exit 1; fi
 release_discover
 [[ "$(jq -r .version "${release_candidate}")" == v1.1.1 ]]
+cp "${test_root}/release.json" "${test_root}/release.original.json"
+jq '.version="v1.10.0" | .images.backend |= sub(":v1.1.1"; ":v1.10.0") | .images.frontend |= sub(":v1.1.1"; ":v1.10.0")' "${test_root}/release.original.json" > "${test_root}/release.json"
+printf '%s\n' '{"schema_version":1,"versions":["v1.9.0","v1.10.0","v1.1.1"]}' > "${test_root}/catalog.json"
+release_discover
+[[ "$(jq -r .version "${release_candidate}")" == v1.10.0 ]]
+cp "${test_root}/release.original.json" "${test_root}/release.json"
+printf '%s\n' '{"schema_version":1,"versions":["v1.1.2"]}' > "${test_root}/catalog.json"
 # Exact selection must agree with the downloaded manifest.
 if release_discover v1.1.2; then echo "Accepted wrong exact version" >&2; exit 1; fi
-if TEST_PRERELEASE=true release_discover v1.1.1; then echo "Accepted a prerelease" >&2; exit 1; fi
+printf '%s\n' '{"schema_version":1,"versions":["v1.1.1"]}' > "${test_root}/catalog.original.json"
+printf '%s\n' '{"schema_version":1,"versions":[]}' > "${test_root}/catalog.json"
+if release_discover v1.1.1; then echo "Accepted an unpublished release" >&2; exit 1; fi
+if release_discover; then echo "Accepted an empty catalog" >&2; exit 1; fi
+for catalog in '{"schema_version":2,"versions":["v1.1.1"]}' '{"schema_version":1,"versions":["latest"]}' '{"schema_version":1,"versions":["v1.1.1-beta"]}' '{"schema_version":1,"versions":["v9007199254740992.0.0"]}' '{"schema_version":1,"versions":["v1.1.1","v1.1.1"]}'; do
+  printf '%s\n' "$catalog" > "${test_root}/catalog.json"
+  if release_discover; then echo "Accepted a malformed catalog" >&2; exit 1; fi
+done
+cp "${test_root}/catalog.original.json" "${test_root}/catalog.json"
 if TEST_FAILURE=catalog release_discover; then echo "Accepted catalog failure" >&2; exit 1; fi
 jq '.version="v2.0.0"' "${test_root}/release.json" > "${release_dir}/current.json"
 if release_discover v1.1.1; then echo "Accepted an unsafe downgrade" >&2; exit 1; fi

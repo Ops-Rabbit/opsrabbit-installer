@@ -7,13 +7,14 @@ fixture_registry=123456789012.dkr.ecr.us-east-1.amazonaws.com
 fixture_revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 jq -n --arg registry "$fixture_registry" --arg revision "$fixture_revision" \
   '{schema_version:1,protocol:1,version:"v1.1.1",revision:$revision,platform:"linux/amd64",images:{backend:($registry+"/vg-backend:v1.1.1"),frontend:($registry+"/vg-webapp:v1.1.1"),sandbox:($registry+"/vg-sandbox:v1.0.0")}}' > "$fixture_root/release.json"
+printf '%s\n' '{"schema_version":1,"versions":["v1.1.1"]}' > "$fixture_root/catalog.json"
 cat > "$fixture_bin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
-if [[ "$*" == *api.github.com* ]]; then
+if [[ "$*" == *'https://opsrabbit-releases-921870554228-us-east-1.s3.us-east-1.amazonaws.com/releases/catalog.json'* ]]; then
   [[ "${TEST_FAILURE:-}" != catalog ]] || exit 22
-  printf '[{"tag_name":"opsrabbit-v1.1.1","draft":false,"prerelease":%s},{"tag_name":"v9.0.0","draft":false,"prerelease":false}]\n' "${TEST_PRERELEASE:-false}"
-elif [[ "$*" == *'/release.json'* ]]; then
+  cat "$TEST_RELEASE_ROOT/catalog.json"
+elif [[ "$*" == *'https://opsrabbit-releases-921870554228-us-east-1.s3.us-east-1.amazonaws.com/releases/v'*'/release.json'* ]]; then
   while [[ "$1" != -o ]]; do shift; done
   cp "$TEST_RELEASE_ROOT/release.json" "$2"
 else
