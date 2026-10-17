@@ -176,9 +176,9 @@ sudo ./migrate.sh --backup-confirmed
 sudo ./migrate.sh --backup-confirmed --version v1.1.1
 ```
 
-For a nonstandard directory, pass the existing `OPSRABBIT_DEPLOY_DIR` through sudo explicitly. Migration backs up the old helper and `.env` once in `.release-migration-backup` (restricted to the deployment owner), installs the new helper and authentication/release libraries, and adopts a complete product release. It does not replace your Compose/TOML files, public URL, secrets or volumes. Keep the backup until the migration is verified, then remove that specific backup directory as an administrator according to your configuration-backup policy.
+For a nonstandard directory, pass the existing `OPSRABBIT_DEPLOY_DIR` through sudo explicitly. Migration installs the new helper and authentication/release libraries and adopts a complete product release. The required PostgreSQL/configuration backup remains the operator's responsibility. It does not replace your Compose/TOML files, public URL, secrets or volumes.
 
-OpenSandbox must already use the documented 1.1.1 server/execd/egress pins and the required host AppArmor policy. The migration preserves provider configuration; verify compatibility before running it, and complete the provider/browser upgrade sections first. Legacy hosts without `.aws-auth` must explicitly choose their deployment identity. A successful AWS identity check alone does not prove image access; candidate manifest and layer pulls are required before maintenance.
+OpenSandbox must already use the documented 1.1.1 server/execd/egress pins and the required host AppArmor policy. The migration preserves provider configuration; verify compatibility before running it, and complete the provider/browser upgrade sections first. Legacy hosts without `.aws-auth` must explicitly choose their deployment identity. A successful AWS identity check alone does not prove image access; candidate image pulls are required before maintenance.
 
 Application startup performs its normal database migrations. Historical OpsRabbit sandbox aliases become the sandbox pin baked into the selected backend release; custom sandbox image values and enablement remain unchanged. Existing sandbox containers must retire before using a changed image. Do not automatically downgrade binaries after a database migration; use the release-compatible backup/recovery procedure.
 
@@ -192,6 +192,6 @@ opsrabbitctl update --backup-confirmed
 opsrabbitctl update --version v1.1.2 --backup-confirmed
 ```
 
-The helper stores current/previous/pending manifests under `.release` with private directory permissions and locks release operations. On interruption, `status` reports the pending release and start/restart refuses to bypass recovery. Resume with the **same** version and backup confirmation after investigating the failure. No automatic rollback is attempted; older versions are rejected because database compatibility cannot be inferred from an image tag.
+The helper stores current/pending manifests under `.release` with private directory permissions and locks release operations. On interruption, `status` reports the pending release and start/restart refuses to bypass recovery. Resume with the **same** version and backup confirmation after investigating the failure. No automatic rollback is attempted; older versions are rejected because database compatibility cannot be inferred from an image tag.
 
 Updates require maintenance downtime. Put any external frontend proxy/cache into maintenance as well; stopping the Compose web service cannot invalidate a browser tab or an externally hosted frontend. All customer-facing serving must be restored only after the matched backend/frontend pair is verified. Restart/start does not discover a newer version. Image updates do not update helper code, Compose/TOML files or host policies; upgrade those separately when a release requires it.

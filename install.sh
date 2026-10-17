@@ -12,23 +12,7 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-if [[ -z "${version}" ]]; then
-  if ! command -v jq >/dev/null; then
-    apt-get update
-    apt-get install -y jq
-  fi
-  versions='[]'
-  page=1
-  while :; do
-    response="$(curl --fail --silent --show-error --location --max-time 30 --proto '=https' "https://api.github.com/repos/${repository}/releases?per_page=100&page=${page}")"
-    count="$(jq -er 'if type=="array" then length else error("Invalid release catalog") end' <<<"${response}")"
-    versions="$(jq -cn --argjson before "$versions" --argjson entries "$response" '$before + [$entries[] | select(.draft == false and .prerelease == false) | .tag_name | select(test("^v[0-9]+\\.[0-9]+\\.[0-9]+$"))]')"
-    [[ "$count" -eq 100 ]] || break
-    page=$((page + 1))
-    [[ "$page" -le 1000 ]] || { echo "Installer catalog exceeded page limit." >&2; exit 1; }
-  done
-  version="$(jq -er 'sort_by(ltrimstr("v") | split(".") | map(tonumber)) | last // error("No installer release")' <<<"$versions")"
-fi
+[[ -n "${version}" ]] || { echo "Select an installer release with OPSRABBIT_INSTALLER_VERSION, or use its versioned install.sh download." >&2; exit 1; }
 [[ "${version}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Expected a concrete installer version." >&2; exit 1; }
 release_url="https://github.com/${repository}/releases/download/${version}"
 

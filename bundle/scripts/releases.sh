@@ -52,11 +52,6 @@ release_discover() {
   echo "Selected OpsRabbit ${requested}."
 }
 
-release_compose() {
-  local manifest="$1" override="$2"
-  jq '{services: {daemon: {image: .images.backend}, web: {image: .images.frontend}}}' "${manifest}" > "${override}"
-}
-
 release_verify() {
   local manifest="$1" service image container actual
   for service in daemon web; do
@@ -96,8 +91,7 @@ release_deploy() {
       *) echo "Unknown release option: ${option}" >&2; return 1 ;;
     esac
   done
-  command -v jq >/dev/null && command -v flock >/dev/null || { echo "Install jq and util-linux before upgrading." >&2; return 1; }
-  install -d -m 0700 "${release_dir}"
+  command -v jq >/dev/null || { echo "Install jq before upgrading." >&2; return 1; }
   if [[ ! -f "${release_dir}/current.json" && "${adopt}" != true ]]; then
     echo "Legacy deployment: use migrate.sh, or deploy --adopt --backup-confirmed after reviewing the upgrade requirements." >&2; return 1
   fi
@@ -107,7 +101,6 @@ release_deploy() {
   if [[ -f "${release_dir}/pending.json" && "$(jq -r .version "${release_dir}/pending.json")" != "$(jq -r .version "${release_candidate}")" ]]; then
     echo "An interrupted release is pending. Resume that exact version before selecting another release." >&2; return 1
   fi
-  while IFS= read -r image; do docker manifest inspect "${image}" >/dev/null || return 1; done < <(jq -r '.images | .backend,.frontend,.sandbox' "${release_candidate}")
   while IFS= read -r image; do docker pull --platform linux/amd64 "${image}" || return 1; done < <(jq -r '.images | .backend,.frontend,.sandbox' "${release_candidate}")
   # A custom workload is preserved rather than replaced by the release default.
   if [[ "${sandbox_image}" != "$(jq -r .images.sandbox "${release_candidate}")" && "${sandbox_image}" != "$(jq -r '.images.sandbox // empty' "${release_dir}/current.json" 2>/dev/null || true)" ]]; then
@@ -127,11 +120,9 @@ release_deploy() {
     [[ "$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.revision"}}' "${image}")" == "$(jq -r .revision "${release_candidate}")" ]] || return 1
   done
   override="${release_candidate}.compose.json"
-  release_compose "${release_candidate}" "${override}"
-  if [[ "${worker_defined}" == true ]]; then
-    jq '.services.worker = .services.daemon' "${override}" > "${override}.worker"
-    mv -- "${override}.worker" "${override}"
-  fi
+  jq --argjson worker "${worker_defined}" \
+    '{services: ({daemon: {image: .images.backend}, web: {image: .images.frontend}} + (if $worker then {worker: {image: .images.backend}} else {} end))}' \
+    "${release_candidate}" > "${override}"
   compose+=( -f "${override}" )
   "${compose[@]}" config --quiet || return 1
   # Pull non-product dependencies too, before stopping any service.
@@ -158,7 +149,6 @@ release_deploy() {
     "${compose[@]}" stop web
     echo "Release verification failed; web is stopped. Resume the pending version after investigating." >&2; return 1
   fi
-  if [[ -f "${release_dir}/current.json" ]]; then cp -- "${release_dir}/current.json" "${release_dir}/previous.json"; fi
   # Atomic rename keeps a partially written override from blocking recovery.
   # Keep the candidate available to cleanup through the commit. In particular,
   # a signal after the installed override rename must still be able to stop web.
@@ -167,6 +157,6 @@ release_deploy() {
   mv -- "${release_candidate}" "${release_dir}/current.json"
   release_candidate=""
   release_started=false
-  rm -f -- "${release_dir}/pending.json" "${override}" "${override}.worker"
+  rm -f -- "${release_dir}/pending.json" "${override}"
   echo "Installed $(jq -r .version "${release_dir}/current.json")."
 }

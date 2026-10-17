@@ -96,7 +96,12 @@ case "$*" in
     fi
     echo '{"schemaVersion":2}'
     ;;
-  'pull '*) [[ "${TEST_FAILURE:-}" != layer ]] ;;
+  'pull '*)
+    [[ "${TEST_FAILURE:-}" != layer ]]
+    if [[ "${TEST_FAILURE:-}" == manifest && "$*" == *'/vg-webapp:v'* ]]; then
+      echo 'Access denied to web image' >&2; exit 1
+    fi
+    ;;
   *' ps -q opensandbox-server') echo fixture-opensandbox ;;
   'inspect '*) echo connected ;;
 esac
@@ -167,11 +172,10 @@ echo 'PASS: explicit profile verifies all images and ignores every ambient provi
 
 for action in login deploy update; do
   run_ctl "${action}"
-  [[ "$(grep -c '^docker manifest inspect ' "${log}")" == 3 ]]
-  if [[ "${action}" != login ]]; then
-    last_check="$(grep -n '^docker manifest inspect ' "${log}" | tail -n 1 | cut -d: -f1)"
-    first_pull="$(grep -n '^docker pull ' "${log}" | head -n 1 | cut -d: -f1)"
-    [[ "${last_check}" -lt "${first_pull}" ]]
+  if [[ "${action}" == login ]]; then
+    [[ "$(grep -c '^docker manifest inspect ' "${log}")" == 3 ]]
+  else
+    grep -q '^docker pull ' "${log}"
   fi
   assert_ephemeral_cleanup
 done
@@ -179,7 +183,11 @@ echo 'PASS: login, deploy and update share selected authentication and preflight
 
 for failure in identity ecr manifest tmpdir permissions; do
   if run_ctl deploy; then echo "Accepted failed ${failure}"; exit 1; fi
-  assert_no_service_changes
+  if [[ "${failure}" == manifest ]]; then
+    ! grep -q '^docker compose ' "${log}"
+  else
+    assert_no_service_changes
+  fi
   if [[ "${failure}" == tmpdir || "${failure}" == permissions ]]; then
     if grep -q '^docker ' "${log}"; then echo 'Docker ran without a private config'; exit 1; fi
     if grep -q '^aws ecr ' "${log}"; then echo 'Requested token without a private config'; exit 1; fi

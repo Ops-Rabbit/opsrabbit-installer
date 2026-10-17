@@ -84,6 +84,5 @@ printf '#!/bin/sh\nexit 88\n' > /usr/local/bin/opsrabbitctl
 cp "$OPSRABBIT_DEPLOY_DIR/docker-compose.yml" "$test_root/compose-before"
 "$repo_root/bundle/migrate.sh" --backup-confirmed --version v1.1.1 > "$test_root/output" 2>&1
 cmp "$test_root/compose-before" "$OPSRABBIT_DEPLOY_DIR/docker-compose.yml"
-grep -q 'exit 88' "$OPSRABBIT_DEPLOY_DIR/.release-migration-backup/opsrabbitctl"
 grep -Fxq CUSTOM_SETTING=preserve-verbatim "$OPSRABBIT_DEPLOY_DIR/.env"
 echo 'PASS: pull failure isolation, interrupted worker recovery, service locks, image application and root one-time migration'

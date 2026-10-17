@@ -9,14 +9,6 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 deploy_dir="${OPSRABBIT_DEPLOY_DIR:-/opt/opsrabbit}"
 [[ -f "${deploy_dir}/.env" && -f "${deploy_dir}/docker-compose.yml" ]] || { echo "Deployment not found: ${deploy_dir}" >&2; exit 1; }
 command -v jq >/dev/null && command -v flock >/dev/null || { echo "Install jq and util-linux first." >&2; exit 1; }
-owner="$(stat -c '%U' "${deploy_dir}")"
-# Preserve a bounded pre-migration helper/config backup, without printing secrets.
-backup="${deploy_dir}/.release-migration-backup"
-if [[ ! -d "${backup}" ]]; then
-  install -d -m 0700 -o "${owner}" "${backup}"
-  cp -p -- "${deploy_dir}/.env" "${backup}/env"
-  if [[ -f /usr/local/bin/opsrabbitctl ]]; then cp -p /usr/local/bin/opsrabbitctl "${backup}/opsrabbitctl"; fi
-fi
 install -d -m 0755 /usr/local/lib/opsrabbit
 install -m 0644 "${script_dir}/scripts/releases.sh" /usr/local/lib/opsrabbit/releases.sh
 install -m 0644 "${script_dir}/scripts/aws-auth.sh" /usr/local/lib/opsrabbit/aws-auth.sh
