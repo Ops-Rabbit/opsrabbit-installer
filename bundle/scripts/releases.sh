@@ -80,13 +80,14 @@ release_update_env() {
 }
 
 release_deploy() {
-  local requested="" adopt=false backup=false option override worker_running=false worker_defined=false pending_file worker_id image
+  local requested="" adopt=false backup=false ecr_password_stdin=false option override worker_running=false worker_defined=false pending_file worker_id image
   while [[ "$#" -gt 0 ]]; do
     option="$1"; shift
     case "${option}" in
       --version) [[ "$#" -gt 0 ]] || return 1; requested="$1"; shift ;;
       --adopt) adopt=true ;;
       --backup-confirmed) backup=true ;;
+      --ecr-password-stdin) ecr_password_stdin=true ;;
       *) echo "Unknown release option: ${option}" >&2; return 1 ;;
     esac
   done
@@ -95,7 +96,11 @@ release_deploy() {
     echo "Legacy deployment: use migrate.sh, or deploy --adopt --backup-confirmed after reviewing the upgrade requirements." >&2; return 1
   fi
   [[ "${backup}" == true ]] || { echo "Back up PostgreSQL and configuration, then pass --backup-confirmed." >&2; return 1; }
-  auth_load && auth_prepare && auth_identity && ecr_login || return 1
+  if [[ "${ecr_password_stdin}" == true ]]; then
+    ecr_login --ecr-password-stdin || return 1
+  else
+    auth_load && auth_prepare && auth_identity && ecr_login || return 1
+  fi
   release_discover "${requested}" || return 1
   if [[ -f "${release_dir}/pending.json" && "$(jq -r .version "${release_dir}/pending.json")" != "$(jq -r .version "${release_candidate}")" ]]; then
     echo "An interrupted release is pending. Resume that exact version before selecting another release." >&2; return 1

@@ -7,6 +7,15 @@ env_file="${deploy_dir}/.env"
 compose_file="${deploy_dir}/docker-compose.yml"
 helper_path="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
+if [[ "${1:-}" != deploy && "${1:-}" != update ]]; then
+  for option in "$@"; do
+    if [[ "${option}" == --ecr-password-stdin ]]; then
+      echo "--ecr-password-stdin is supported only by deploy and update." >&2
+      exit 2
+    fi
+  done
+fi
+
 if [[ ! -d "${deploy_dir}" ]]; then
   echo "OpsRabbit is not installed in ${deploy_dir}. Run the installer first." >&2
   exit 1
@@ -107,13 +116,31 @@ fi
 ecr_login() {
   local login_output
 
+  if [[ "${1:-}" == --ecr-password-stdin ]]; then
+    local supplied_ecr_password=""
+    export -n supplied_ecr_password
+    if [[ -t 0 ]]; then
+      echo "Pipe an ECR password into --ecr-password-stdin." >&2
+      return 1
+    fi
+    if ! { IFS= read -r supplied_ecr_password || [[ -n "${supplied_ecr_password}" ]]; } || [[ -z "${supplied_ecr_password}" ]]; then
+      echo "A non-empty ECR password is required on stdin." >&2
+      return 1
+    fi
+  fi
+
   if [[ -n "${docker_config_dir}" ]]; then rm -rf -- "${docker_config_dir}" || return 1; fi
   docker_config_dir="$(mktemp -d)" || return 1
   [[ -n "${docker_config_dir}" && -d "${docker_config_dir}" ]] || return 1
   chmod 0700 "${docker_config_dir}" || return 1
   export DOCKER_CONFIG="${docker_config_dir}"
 
-  if ! login_output="$(
+  if [[ "${1:-}" == --ecr-password-stdin ]]; then
+    if ! printf '%s\n' "${supplied_ecr_password}" | docker login --username AWS --password-stdin "${ecr_registry}" >/dev/null 2>&1; then
+      echo "ECR login failed for the supplied password." >&2
+      return 1
+    fi
+  elif ! login_output="$(
     aws ecr get-login-password --region "${aws_region}" \
       | docker login --username AWS --password-stdin "${ecr_registry}" 2>&1
   )"; then
@@ -241,7 +268,7 @@ case "${1:-}" in
     echo "OpenSandbox health, authentication, and sandbox image checks passed."
     ;;
   *)
-    echo "Usage: opsrabbitctl update [--version vX.Y.Z] --backup-confirmed | deploy --adopt --backup-confirmed | {auth {configure|login|status}|login|deploy|update|start|stop|restart|status|logs [service]|health}" >&2
+    echo "Usage: opsrabbitctl update [--version vX.Y.Z] [--ecr-password-stdin] --backup-confirmed | deploy --adopt [--ecr-password-stdin] --backup-confirmed | {auth {configure|login|status}|login|deploy|update|start|stop|restart|status|logs [service]|health}" >&2
     exit 2
     ;;
 esac

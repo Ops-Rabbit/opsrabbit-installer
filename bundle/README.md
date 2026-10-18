@@ -85,6 +85,15 @@ opsrabbitctl auth status
 
 ## Operations
 
+For a caller that already has an ECR password, `deploy` and `update` accept the optional `--ecr-password-stdin` flag:
+
+```bash
+aws ecr get-login-password --region us-east-1 \
+  | opsrabbitctl update --backup-confirmed --ecr-password-stdin
+```
+
+The supplied password is used only for that invocation, through a private temporary Docker configuration that is removed on exit. Do not pass it in command arguments. The helper requires non-empty piped or redirected input and does not echo rejected passwords. This mode needs neither AWS CLI nor a saved AWS authentication selection on the deployment host; issuing the password remains the caller's responsibility. Existing AWS authentication settings are preserved. Without the flag, the selected AWS authentication and renewal behavior is unchanged. Release selection, backup confirmation, image checks and recovery safeguards are the same in both modes.
+
 Run these from your normal sudo-capable account. The helper requests sudo when necessary and runs as the deployment owner, so AWS login and subsequent commands use the same home directory:
 
 ```bash

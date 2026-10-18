@@ -17,8 +17,9 @@ helper = pathlib.Path('/usr/local/bin/opsrabbitctl')
 library = pathlib.Path('/usr/local/lib/opsrabbit')
 aws = pathlib.Path('/usr/local/bin/aws')
 docker = pathlib.Path('/usr/local/bin/docker')
+curl = pathlib.Path('/usr/local/bin/curl')
 sudoers = pathlib.Path('/etc/sudoers.d/opsrabbit-auth-fixture')
-for path in (deploy, helper, library, aws, docker, sudoers):
+for path in (deploy, helper, library, aws, docker, curl, sudoers):
     assert not path.exists(), f'Refusing to overwrite {path}'
 
 
@@ -72,7 +73,11 @@ set -euo pipefail
 [[ "$(id -un)" == opsrabbit-auth-fixture ]]
 [[ "$HOME" == /home/opsrabbit-auth-fixture && "$PWD" == /opt/opsrabbit ]]
 case "$*" in
-  'login '*) [[ "$(cat)" == fixture-ecr-token ]] ;;
+  'login '*)
+    [[ "$(cat)" == fixture-ecr-token ]]
+    [[ "$(stat -c %a "$DOCKER_CONFIG")" == 700 ]]
+    printf '%s\\n' "$DOCKER_CONFIG" > /opt/opsrabbit/.last-docker-config
+    ;;
   *' ps -q opensandbox-server') echo fixture-sandbox ;;
   'inspect '*) echo connected ;;
 esac
@@ -131,8 +136,31 @@ esac
     assert '123456789012' in run(str(helper), 'auth', 'status', cwd='/root').stdout
 
     print('PASS: real sudo/runuser routing, hidden terminal prompts, deployment HOME, root installer handoff and subsequent reuse')
+
+    # Use the shared release transport fixture; the real helper still performs
+    # authentication, owner routing, release selection and deployment ordering.
+    fixture = deploy / 'token-fixture'
+    fixture_bin = fixture / 'bin'
+    fixture_bin.mkdir(parents=True)
+    shutil.copyfile(docker, fixture_bin / 'docker')
+    (fixture_bin / 'docker').chmod(0o755)
+    run('bash', str(repo / 'tests/release-fixture.sh'), str(fixture), str(fixture_bin))
+    docker.write_text(f'#!/bin/bash\nexec {fixture_bin}/docker "$@"\n')
+    curl.write_text(f'#!/bin/bash\nexport TEST_RELEASE_ROOT={fixture}\nexec {fixture_bin}/curl "$@"\n')
+    curl.chmod(0o755)
+    aws.unlink()
+    selected_auth = state.read_bytes()
+    saved_credentials = credentials.read_bytes()
+    for prefix, action in (([str(helper)], 'deploy'), (['runuser', '-u', operator, '--', str(helper)], 'update')):
+        result = run(*prefix, action, '--adopt', '--backup-confirmed', '--ecr-password-stdin',
+                     input='fixture-ecr-token\n', cwd='/root')
+        assert 'Installed v1.1.1.' in result.stdout
+        assert 'fixture-ecr-token' not in result.stdout + result.stderr
+        assert not pathlib.Path((deploy / '.last-docker-config').read_text().strip()).exists()
+        assert state.read_bytes() == selected_auth and credentials.read_bytes() == saved_credentials
+    print('PASS: piped ECR token survives root and sudo/runuser handoff without host AWS CLI or stored-auth changes')
 finally:
-    for path in (helper, aws, docker, sudoers):
+    for path in (helper, aws, docker, curl, sudoers):
         path.unlink(missing_ok=True)
     shutil.rmtree(deploy, ignore_errors=True)
     shutil.rmtree(library, ignore_errors=True)
