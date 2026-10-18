@@ -18,7 +18,7 @@ AWS_REGION=us-east-1
 ECR_REGISTRY=123456789012.dkr.ecr.us-east-1.amazonaws.com
 OPSRABBIT_DAEMON_IMAGE=old-backend:latestv2
 OPSRABBIT_WEB_IMAGE=old-web:latestv2
-OPSRABBIT_SANDBOX_IMAGE=old-sandbox:latest
+OPSRABBIT_SANDBOX_IMAGE=123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:20261011-38113406925-1
 OPSRABBIT_BACKEND_PORT=8384
 WEB_HTTP_PORT=3000
 OPENSANDBOX_PORT=8080
@@ -66,6 +66,8 @@ jq -e '.worker == .daemon and (.web | contains("vg-webapp:v1.1.1")) and (.daemon
 [[ ! -f "$OPSRABBIT_DEPLOY_DIR/.release/pending.json" ]]
 jq -e '.services.worker.image == .services.daemon.image' "$OPSRABBIT_DEPLOY_DIR/.release/current.compose.json" >/dev/null
 grep -Fxq CUSTOM_SETTING=preserve-verbatim "$OPSRABBIT_DEPLOY_DIR/.env"
+grep -Fxq OPSRABBIT_SANDBOX_IMAGE=123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:v1.0.0 "$OPSRABBIT_DEPLOY_DIR/.env"
+if grep -Fq 'vg-sandbox:20261011-38113406925-1' "$test_root/pulled-images"; then echo 'Pulled legacy sandbox instead of release default'; exit 1; fi
 # Every mutator must acquire the deployment lock before inspecting or changing services.
 exec {held_lock}>"$OPSRABBIT_DEPLOY_DIR/.release/lock"
 flock "$held_lock"

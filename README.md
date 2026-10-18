@@ -205,7 +205,7 @@ For a nonstandard directory, pass the existing `OPSRABBIT_DEPLOY_DIR` through su
 
 OpenSandbox must already use the documented 1.1.1 server/execd/egress pins and the required host AppArmor policy. The migration preserves provider configuration; verify compatibility before running it, and complete the provider/browser upgrade sections first. Legacy hosts without `.aws-auth` must explicitly choose their deployment identity. A successful AWS identity check alone does not prove image access; candidate image pulls are required before maintenance.
 
-Application startup performs its normal database migrations. Historical OpsRabbit sandbox aliases become the sandbox pin baked into the selected backend release; custom sandbox image values and enablement remain unchanged. Existing sandbox containers must retire before using a changed image. Do not automatically downgrade binaries after a database migration; use the release-compatible backup/recovery procedure.
+Application startup performs its normal database migrations. Historical OpsRabbit sandbox aliases and official `YYYYMMDD-RUN-ATTEMPT` build tags become the sandbox pin baked into the selected backend release; custom sandbox image values and enablement remain unchanged. Existing sandbox containers must retire before using a changed image. Do not automatically downgrade binaries after a database migration; use the release-compatible backup/recovery procedure.
 
 ## Product release selection and recovery
 
