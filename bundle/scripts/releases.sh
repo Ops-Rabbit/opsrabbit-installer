@@ -62,15 +62,20 @@ release_verify() {
   done
 }
 
+release_manages_sandbox() {
+  local image="$1" tag="${1##*:}"
+  case "${image}" in
+    opsrabbit-release:unconfigured|opsrabbit-sandbox:latest|"${ecr_registry}/vg-sandbox:latest"|"") return 0 ;;
+  esac
+  if [[ "${image}" == "${ecr_registry}/vg-sandbox:"* && "${tag}" =~ ^[0-9]{8}-[0-9]+(-[0-9]+)?$ ]]; then return 0; fi
+  [[ "${image}" == "$(jq -r '.images.sandbox // empty' "${release_dir}/current.json" 2>/dev/null || true)" ]]
+}
+
 release_update_env() {
-  local manifest="$1" temporary_env current_sandbox previous_sandbox managed_sandbox=false
+  local manifest="$1" temporary_env current_sandbox managed_sandbox=false
   temporary_env="$(mktemp "${deploy_dir}/.env.XXXXXX")"
   current_sandbox="$(sed -n 's/^OPSRABBIT_SANDBOX_IMAGE=//p' "${env_file}" | tail -n 1)"
-  previous_sandbox="$(jq -r '.images.sandbox // empty' "${release_dir}/current.json" 2>/dev/null || true)"
-  case "${current_sandbox}" in
-    opsrabbit-release:unconfigured|opsrabbit-sandbox:latest|"${ecr_registry}/vg-sandbox:latest"|"") managed_sandbox=true ;;
-    *) if [[ -n "${previous_sandbox}" && "${current_sandbox}" == "${previous_sandbox}" ]]; then managed_sandbox=true; fi ;;
-  esac
+  if release_manages_sandbox "${current_sandbox}"; then managed_sandbox=true; fi
   # Preserve custom sandbox choices, unrelated settings and secrets verbatim.
   awk -v managed="${managed_sandbox}" '!/^(OPSRABBIT_DAEMON_IMAGE|OPSRABBIT_WEB_IMAGE)=/ && !(managed == "true" && /^OPSRABBIT_SANDBOX_IMAGE=/)' "${env_file}" > "${temporary_env}"
   jq -r '"OPSRABBIT_DAEMON_IMAGE=" + .images.backend, "OPSRABBIT_WEB_IMAGE=" + .images.frontend' "${manifest}" >> "${temporary_env}"
@@ -111,11 +116,8 @@ release_deploy() {
   fi
   while IFS= read -r image; do docker pull --platform linux/amd64 "${image}" || return 1; done < <(jq -r '.images | .backend,.frontend,.sandbox' "${release_candidate}")
   # A custom workload is preserved rather than replaced by the release default.
-  if [[ "${sandbox_image}" != "$(jq -r .images.sandbox "${release_candidate}")" && "${sandbox_image}" != "$(jq -r '.images.sandbox // empty' "${release_dir}/current.json" 2>/dev/null || true)" ]]; then
-    case "${sandbox_image}" in
-      opsrabbit-release:unconfigured|opsrabbit-sandbox:latest|"${ecr_registry}/vg-sandbox:latest") ;;
-      *) docker pull --platform linux/amd64 "${sandbox_image}" || return 1 ;;
-    esac
+  if [[ "${sandbox_image}" != "$(jq -r .images.sandbox "${release_candidate}")" ]] && ! release_manages_sandbox "${sandbox_image}"; then
+    docker pull --platform linux/amd64 "${sandbox_image}" || return 1
   fi
   if [[ -f "${release_dir}/pending.json" ]]; then worker_running="$(jq -r '._deployment.worker_was_running // false' "${release_dir}/pending.json")"; fi
   if docker compose --env-file "${env_file}" -f "${compose_file}" --profile '*' config --services | grep -Fxq worker; then
