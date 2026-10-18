@@ -89,6 +89,7 @@ case "$*" in
   'login '*)
     token="$(cat)"
     [[ "$token" == fixture-ecr-token ]] || exit 1
+    if [[ "${TEST_FAILURE:-}" == token ]]; then echo "Rejected $token" >&2; exit 1; fi
     ;;
   'manifest inspect '*)
     if [[ "${TEST_FAILURE:-}" == manifest && ( "$*" == *'/web:test' || "$*" == *'/vg-webapp:v'* ) ]]; then
@@ -97,6 +98,7 @@ case "$*" in
     echo '{"schemaVersion":2}'
     ;;
   'pull '*)
+    if [[ "${TEST_FAILURE:-}" == interrupted ]]; then kill -TERM "$PPID"; exit 143; fi
     [[ "${TEST_FAILURE:-}" != layer ]]
     if [[ "${TEST_FAILURE:-}" == manifest && "$*" == *'/vg-webapp:v'* ]]; then
       echo 'Access denied to web image' >&2; exit 1
@@ -152,7 +154,21 @@ assert_ephemeral_cleanup() {
   [[ -z "$(find "${test_root}/home" \( -name 'credentials.*' -o -name 'config.*' \) -print)" ]]
 }
 assert_no_secrets() {
-  ! grep -Eq 'fixture-secret-never-log|fixture-token-never-log|fixture-ecr-token|client-secret|client-token' "${output}" "${log}" "${deploy}/.env" "${state}"
+  local files=("${output}" "${log}" "${deploy}/.env")
+  if [[ -e "${state}" ]]; then files+=("${state}"); fi
+  if grep -Eq 'fixture-secret-never-log|fixture-token-never-log|fixture-ecr-token|client-secret|client-token' "${files[@]}"; then
+    echo 'Authentication secret appeared in output or persistent configuration.' >&2; exit 1
+  fi
+}
+assert_no_aws_calls() {
+  if grep -q '^aws ' "${log}"; then
+    echo 'Supplied-token authentication invoked AWS CLI.' >&2; exit 1
+  fi
+}
+assert_no_compose_calls() {
+  if grep -q '^docker compose ' "${log}"; then
+    echo 'Changed services after a failed preflight.' >&2; exit 1
+  fi
 }
 
 touch "${input}"
@@ -160,6 +176,40 @@ if run_ctl deploy; then echo 'Missing selection accepted ambient role'; exit 1; 
 [[ ! -s "${log}" ]]
 grep -q 'auth configure' "${output}"
 echo 'PASS: legacy/missing selection fails before any AWS or Docker call'
+
+if ! printf 'fixture-ecr-token\n' | run_ctl deploy --ecr-password-stdin; then
+  cat "${output}"; exit 1
+fi
+[[ ! -e "${state}" && ! -e "${credentials}" ]]
+assert_no_aws_calls
+grep -q '^docker pull ' "${log}"
+assert_ephemeral_cleanup
+assert_no_secrets
+echo 'PASS: supplied ECR token deploys without selecting or persisting AWS credentials'
+
+for failure in empty token layer interrupted; do
+  token_input=fixture-ecr-token
+  if [[ "${failure}" == empty ]]; then token_input=""; fi
+  if printf '%s\n' "${token_input}" | run_ctl update --ecr-password-stdin; then
+    echo "Accepted ${failure} token deployment"; exit 1
+  fi
+  assert_no_aws_calls
+  assert_no_compose_calls
+  if [[ "${failure}" == empty ]]; then [[ ! -s "${log}" ]]; fi
+  [[ ! -e "${state}" && ! -e "${credentials}" ]]
+  assert_no_secrets
+  assert_ephemeral_cleanup
+done
+failure=""
+echo 'PASS: empty/rejected tokens, denied pulls and interruption leave services untouched and remove temporary Docker auth'
+
+for action in login restart; do
+  if printf 'fixture-ecr-token\n' | run_ctl "${action}" --ecr-password-stdin; then
+    echo "Accepted token option for ${action}"; exit 1
+  fi
+  grep -q 'supported only by deploy and update' "${output}"
+  [[ ! -s "${log}" ]]
+done
 
 printf '4\nfixture-profile\n' > "${input}"
 run_ctl auth configure
@@ -169,6 +219,16 @@ run_ctl auth configure
 assert_no_service_changes
 assert_ephemeral_cleanup
 echo 'PASS: explicit profile verifies all images and ignores every ambient provider'
+
+cp "${state}" "${test_root}/selected-state"
+failure=identity
+printf 'fixture-ecr-token' | run_ctl update --ecr-password-stdin
+cmp "${state}" "${test_root}/selected-state"
+assert_no_aws_calls
+assert_ephemeral_cleanup
+assert_no_secrets
+failure=""
+echo 'PASS: supplied token updates without renewing or replacing the selected AWS identity'
 
 for action in login deploy update; do
   run_ctl "${action}"
@@ -184,7 +244,7 @@ echo 'PASS: login, deploy and update share selected authentication and preflight
 for failure in identity ecr manifest tmpdir permissions; do
   if run_ctl deploy; then echo "Accepted failed ${failure}"; exit 1; fi
   if [[ "${failure}" == manifest ]]; then
-    ! grep -q '^docker compose ' "${log}"
+    assert_no_compose_calls
   else
     assert_no_service_changes
   fi
