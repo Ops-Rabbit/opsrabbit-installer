@@ -268,7 +268,7 @@ case "${1:-}" in
     echo "OpenSandbox health, authentication, and sandbox image checks passed."
     ;;
   *)
-    echo "Usage: opsrabbitctl update [--version vX.Y.Z] [--ecr-password-stdin] --backup-confirmed | deploy --adopt [--ecr-password-stdin] --backup-confirmed | {auth {configure|login|status}|login|deploy|update|start|stop|restart|status|logs [service]|health}" >&2
+    echo "Usage: opsrabbitctl {update|deploy [--adopt]} [--version vX.Y.Z] [--ecr-password-stdin] {--backup-confirmed|--skip-backup} | {auth {configure|login|status}|login|start|stop|restart|status|logs [service]|health}" >&2
     exit 2
     ;;
 esac

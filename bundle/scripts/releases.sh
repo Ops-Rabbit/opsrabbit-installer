@@ -80,13 +80,14 @@ release_update_env() {
 }
 
 release_deploy() {
-  local requested="" adopt=false backup=false ecr_password_stdin=false option override worker_running=false worker_defined=false pending_file worker_id image
+  local requested="" adopt=false backup=false skip_backup=false ecr_password_stdin=false option override worker_running=false worker_defined=false pending_file worker_id image
   while [[ "$#" -gt 0 ]]; do
     option="$1"; shift
     case "${option}" in
       --version) [[ "$#" -gt 0 ]] || return 1; requested="$1"; shift ;;
       --adopt) adopt=true ;;
       --backup-confirmed) backup=true ;;
+      --skip-backup) skip_backup=true ;;
       --ecr-password-stdin) ecr_password_stdin=true ;;
       *) echo "Unknown release option: ${option}" >&2; return 1 ;;
     esac
@@ -95,7 +96,10 @@ release_deploy() {
   if [[ ! -f "${release_dir}/current.json" && "${adopt}" != true ]]; then
     echo "Legacy deployment: use migrate.sh, or deploy --adopt --backup-confirmed after reviewing the upgrade requirements." >&2; return 1
   fi
-  [[ "${backup}" == true ]] || { echo "Back up PostgreSQL and configuration, then pass --backup-confirmed." >&2; return 1; }
+  if [[ "${backup}" == true && "${skip_backup}" == true ]]; then
+    echo "Choose either --backup-confirmed or --skip-backup." >&2; return 1
+  fi
+  [[ "${backup}" == true || "${skip_backup}" == true ]] || { echo "Back up PostgreSQL and configuration, then pass --backup-confirmed, or explicitly choose --skip-backup." >&2; return 1; }
   if [[ "${ecr_password_stdin}" == true ]]; then
     ecr_login --ecr-password-stdin || return 1
   else

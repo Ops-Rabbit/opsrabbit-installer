@@ -76,7 +76,13 @@ done
 flock -u "$held_lock"
 # Adoption and reapplication must preserve a deliberately customized workload.
 sed -i 's|^OPSRABBIT_SANDBOX_IMAGE=.*|OPSRABBIT_SANDBOX_IMAGE=customer.invalid/workload:v2.3.4|' "$OPSRABBIT_DEPLOY_DIR/.env"
-"$ctl" deploy --backup-confirmed --version v1.1.1 > "$test_root/output" 2>&1
+# Existing callers still need confirmation; skipping it must be explicit.
+cp "$test_root/lifecycle.log" "$test_root/lifecycle-before"
+for backup_options in '' '--backup-confirmed --skip-backup'; do
+  if "$ctl" update $backup_options --version v1.1.1 > "$test_root/output" 2>&1; then echo 'Accepted missing or conflicting backup choice'; exit 1; fi
+  cmp "$test_root/lifecycle-before" "$test_root/lifecycle.log"
+done
+"$ctl" update --skip-backup --version v1.1.1 > "$test_root/output" 2>&1
 grep -Fxq OPSRABBIT_SANDBOX_IMAGE=customer.invalid/workload:v2.3.4 "$OPSRABBIT_DEPLOY_DIR/.env"
 OPSRABBIT_TEST_API_KEY=fixture-secret "$ctl" health > "$test_root/output" 2>&1
 # Exercise the real root migration entrypoint in this disposable Linux container.
