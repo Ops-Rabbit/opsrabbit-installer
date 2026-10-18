@@ -76,6 +76,11 @@ for action in start stop restart update; do
   grep -q 'Another release or service operation' "$test_root/output"
 done
 flock -u "$held_lock"
+# Earlier CI tags lacked the attempt suffix and must also adopt the release default.
+sed -i 's|^OPSRABBIT_SANDBOX_IMAGE=.*|OPSRABBIT_SANDBOX_IMAGE=123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:20261001-123456789|' "$OPSRABBIT_DEPLOY_DIR/.env"
+"$ctl" update --skip-backup --version v1.1.1 > "$test_root/output" 2>&1
+grep -Fxq OPSRABBIT_SANDBOX_IMAGE=123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:v1.0.0 "$OPSRABBIT_DEPLOY_DIR/.env"
+if grep -Fq 'vg-sandbox:20261001-123456789' "$test_root/pulled-images"; then echo 'Pulled earlier legacy sandbox instead of release default'; exit 1; fi
 # Adoption and reapplication must preserve a deliberately customized workload.
 sed -i 's|^OPSRABBIT_SANDBOX_IMAGE=.*|OPSRABBIT_SANDBOX_IMAGE=customer.invalid/workload:v2.3.4|' "$OPSRABBIT_DEPLOY_DIR/.env"
 # Existing callers still need confirmation; skipping it must be explicit.

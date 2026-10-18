@@ -67,7 +67,7 @@ release_manages_sandbox() {
   case "${image}" in
     opsrabbit-release:unconfigured|opsrabbit-sandbox:latest|"${ecr_registry}/vg-sandbox:latest"|"") return 0 ;;
   esac
-  if [[ "${image}" == "${ecr_registry}/vg-sandbox:"* && "${tag}" =~ ^[0-9]{8}-[0-9]+-[0-9]+$ ]]; then return 0; fi
+  if [[ "${image}" == "${ecr_registry}/vg-sandbox:"* && "${tag}" =~ ^[0-9]{8}-[0-9]+(-[0-9]+)?$ ]]; then return 0; fi
   [[ "${image}" == "$(jq -r '.images.sandbox // empty' "${release_dir}/current.json" 2>/dev/null || true)" ]]
 }
 
