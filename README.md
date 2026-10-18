@@ -120,6 +120,8 @@ opsrabbitctl start
 
 `opsrabbitctl update --backup-confirmed` selects the highest complete stable product release, validates its paired version manifest and selected AWS access, pulls all candidate images, stops web before the backend, waits for the new daemon and workers, then starts and verifies the matched web image. OpenSandbox remains available during backend shutdown for managed-sandbox cleanup. A failed update keeps web stopped and records the pending version for explicit recovery. `stop` and `restart` use the same cleanup ordering. `opsrabbitctl health` also verifies OpenSandbox authentication and confirms that the configured sandbox image is present.
 
+To proceed without confirming a backup, use `opsrabbitctl update --skip-backup` (also supported by `deploy`). Choose either `--backup-confirmed` or `--skip-backup`; without either, commands keep requiring backup confirmation. Neither flag creates a backup. The one-time `migrate.sh` entrypoint still requires `--backup-confirmed`.
+
 Configuration is stored at `/opt/opsrabbit/.env` by default. Back it up securely. Never regenerate `OPSRABBIT_NODE_ENCRYPTION_KEY`; doing so makes previously stored encrypted credentials unreadable.
 
 Persistent data is held in Docker named volumes. Back up PostgreSQL, the OpsRabbit data volume, and the `opensandbox-state` lifecycle database before upgrades.
