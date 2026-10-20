@@ -48,7 +48,7 @@ cd "${deploy_dir}"
 
 release_dir="${deploy_dir}/.release"
 case "${1:-}" in
-  deploy|update|start|stop|restart|auth|login)
+  deploy|update|start|stop|restart|auth|login|https)
     command -v flock >/dev/null || { echo "Install util-linux before changing services or authentication." >&2; exit 1; }
     install -d -m 0700 "${release_dir}"
     exec {release_lock}>"${release_dir}/lock"
@@ -76,6 +76,8 @@ opensandbox_api_key="$(read_env OPENSANDBOX_SERVER_API_KEY)"
 
 unset OPSRABBIT_DAEMON_IMAGE OPSRABBIT_WEB_IMAGE OPSRABBIT_SANDBOX_IMAGE
 compose=(docker compose --env-file "${env_file}" -f "${compose_file}")
+tls_override="${deploy_dir}/docker-compose.https.yml"
+if [[ -f "${tls_override}" ]]; then compose+=(-f "${tls_override}"); fi
 docker_config_dir=""
 auth_candidate=""
 auth_browser_candidate=""
@@ -209,7 +211,177 @@ start_services() {
   "${compose[@]}" up -d --no-build "${remove_orphans[@]}" --wait
 }
 
+fail() { echo "$*" >&2; return 1; }
+
+optional_env() {
+  sed -n "s/^${1}=//p" "${env_file}" | tail -n 1
+}
+
+validate_certificate() {
+  local cert="$1" key="$2" hostname="$3" cert_public key_public
+  [[ -r "$cert" && -r "$key" ]] || { fail "Certificate and key must be readable files."; return 1; }
+  openssl x509 -in "$cert" -noout -checkend 0 >/dev/null || return 1
+  openssl x509 -in "$cert" -noout -checkhost "$hostname" | grep -q 'does match certificate' || {
+    fail "Certificate does not match hostname."; return 1;
+  }
+  # Empty passphrase fails promptly for encrypted keys rather than prompting.
+  cert_public="$(openssl x509 -in "$cert" -pubkey -noout)" || return 1
+  key_public="$(openssl pkey -in "$key" -passin pass: -pubout)" || return 1
+  [[ "$cert_public" == "$key_public" ]] || { fail "Certificate and private key do not match."; return 1; }
+}
+
+set_env() {
+  local key="$1" value="$2" target="$3" next="${3}.next"
+  awk -v key="$key" -v value="$value" '
+    index($0, key "=") != 1 { print }
+    END { print key "=" value }
+  ' "$target" > "$next"
+  chmod 0600 "$next"
+  mv "$next" "$target"
+}
+
+https_configure() (
+  set -euo pipefail
+  umask 077
+  [[ ! -f "${release_dir}/pending.json" ]] || { fail "Resume the pending release before changing HTTPS."; exit 1; }
+  [[ "$deploy_dir" =~ ^/[a-zA-Z0-9_./-]+$ ]] || { fail "HTTPS setup requires a deployment path without spaces or special characters."; exit 2; }
+  mkdir "${deploy_dir}/.https-lock" 2>/dev/null || { fail "Another HTTPS configuration is running; check ${deploy_dir}/.https-lock."; exit 1; }
+  trap 'rmdir "${deploy_dir}/.https-lock"' EXIT
+  local hostname="" cert="" key="" mode=keep port=443 option
+  while [[ $# -gt 0 ]]; do
+    option="$1"; shift
+    [[ $# -gt 0 ]] || { fail "Missing value for ${option}."; exit 2; }
+    case "$option" in
+      --hostname) hostname="$1" ;;
+      --cert) cert="$1" ;;
+      --key) key="$1" ;;
+      --http-mode) mode="$1" ;;
+      --https-port) port="$1" ;;
+      *) fail "Unknown HTTPS option: ${option}"; exit 2 ;;
+    esac
+    shift
+  done
+  [[ "$hostname" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ && "$hostname" == *.* && "$hostname" != *..* ]] || {
+    fail "Supply a DNS hostname without a scheme, port or path."; exit 2;
+  }
+  case "$mode" in keep|redirect|disable) ;; *) fail "HTTP mode must be keep, redirect or disable."; exit 2 ;; esac
+  [[ "$port" =~ ^[1-9][0-9]{0,4}$ ]] && (( port <= 65535 )) || { fail "Invalid HTTPS port."; exit 2; }
+  [[ "$port" != "$web_port" ]] || { fail "HTTP and HTTPS ports must differ."; exit 2; }
+  # Nginx's existing redirect template uses standard HTTPS port 443.
+  [[ "$mode" != redirect || "$port" == 443 ]] || { fail "Redirect mode requires HTTPS port 443."; exit 2; }
+  validate_certificate "$cert" "$key" "$hostname"
+  local version major minor patch
+  version="$(docker compose version --short)"; version="${version#v}"
+  IFS=. read -r major minor patch <<< "$version"
+  [[ "$major" =~ ^[0-9]+$ && "$minor" =~ ^[0-9]+$ && "${patch:-}" =~ ^[0-9]+$ ]] || { fail "Cannot determine Compose version."; exit 1; }
+  (( major > 2 || (major == 2 && (minor > 24 || (minor == 24 && patch >= 4))) )) || {
+    fail "HTTPS requires Docker Compose 2.24.4 or newer."; exit 1;
+  }
+  local backup tls_dir previous_dir activated=false had_override=false
+  previous_dir="$(optional_env OPSRABBIT_HTTPS_CERT_DIR)"
+  backup="$(mktemp -d "${deploy_dir}/.https-backup.XXXXXX")"
+  tls_dir="$(mktemp -d "${deploy_dir}/.https-certs.XXXXXX")"
+  cp "$env_file" "$backup/env"
+  if [[ -f "$tls_override" ]]; then cp "$tls_override" "$backup/override"; had_override=true; fi
+  rollback() {
+    local result=$?
+    if [[ "$activated" == true && $result -ne 0 ]]; then
+      cp "$backup/env" "$env_file"
+      if [[ "$had_override" == true ]]; then cp "$backup/override" "$tls_override"; else rm -f "$tls_override"; fi
+      local restore=(docker compose --env-file "$env_file" -f "$compose_file")
+      if [[ -f "${release_dir}/current.compose.json" ]]; then restore+=(-f "${release_dir}/current.compose.json"); fi
+      if [[ "$had_override" == true ]]; then restore+=(-f "$tls_override"); fi
+      if ! "${restore[@]}" up -d --no-build --wait --wait-timeout 120 daemon web; then
+        echo "Rollback configuration restored, but services need recovery with opsrabbitctl start." >&2
+      fi
+    fi
+    rmdir "${deploy_dir}/.https-lock"
+    rm -rf "$backup"
+    if [[ $result -ne 0 ]]; then rm -rf "$tls_dir"; fi
+    exit "$result"
+  }
+  trap rollback EXIT
+  cp "$cert" "$tls_dir/fullchain.pem"
+  cp "$key" "$tls_dir/privkey.pem"
+  # Parent is 0700; mounted files must also be readable by image's non-root Nginx.
+  chmod 0444 "$tls_dir/fullchain.pem" "$tls_dir/privkey.pem"
+  validate_certificate "$tls_dir/fullchain.pem" "$tls_dir/privkey.pem" "$hostname"
+  local tls_mode=both redirect=false origin="https://${hostname}" bind
+  [[ "$mode" != disable ]] || tls_mode=https
+  [[ "$mode" != redirect ]] || redirect=true
+  [[ "$port" == 443 ]] || origin="${origin}:${port}"
+  bind="$(optional_env WEB_BIND_ADDRESS)"; bind="${bind:-0.0.0.0}"
+  [[ "$bind" =~ ^[0-9.]+$ ]] || { fail "HTTPS configuration currently requires an IPv4 WEB_BIND_ADDRESS."; exit 2; }
+  cp "$env_file" "$backup/new-env"
+  set_env OPSRABBIT_WEB_ORIGIN "$origin" "$backup/new-env"
+  set_env OPSRABBIT_NODE_BASE_URL "$origin/api" "$backup/new-env"
+  set_env OPSRABBIT_HTTPS_HOSTNAME "$hostname" "$backup/new-env"
+  set_env OPSRABBIT_HTTPS_HTTP_MODE "$mode" "$backup/new-env"
+  set_env OPSRABBIT_HTTPS_PORT "$port" "$backup/new-env"
+  set_env OPSRABBIT_HTTPS_CERT_DIR "$tls_dir" "$backup/new-env"
+  # Single-quote YAML paths; Compose interpolation must not interpret host paths.
+  local yaml_dir="${tls_dir//\'/\'\'}"
+  yaml_dir="${yaml_dir//\$/\$\$}"
+  cat > "$backup/new-override" <<EOF
+services:
+  web:
+    ports: !override
+EOF
+  if [[ "$mode" != disable ]]; then printf '      - "%s:%s:80"\n' "$bind" "$web_port" >> "$backup/new-override"; fi
+  cat >> "$backup/new-override" <<EOF
+      - "${bind}:${port}:443"
+    environment:
+      WEB_TLS_MODE: ${tls_mode}
+      WEB_TLS_REDIRECT: "${redirect}"
+      WEB_SERVER_NAME: "${hostname}"
+      WEB_TLS_CERT_FILE: /etc/nginx/certs/fullchain.pem
+      WEB_TLS_KEY_FILE: /etc/nginx/certs/privkey.pem
+    volumes:
+      - '${yaml_dir}/fullchain.pem:/etc/nginx/certs/fullchain.pem:ro'
+      - '${yaml_dir}/privkey.pem:/etc/nginx/certs/privkey.pem:ro'
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-check-certificate --spider --quiet https://127.0.0.1/"]
+EOF
+  local candidate=(docker compose --env-file "$backup/new-env" -f "$compose_file")
+  if [[ -f "${release_dir}/current.compose.json" ]]; then candidate+=(-f "${release_dir}/current.compose.json"); fi
+  candidate+=(-f "$backup/new-override")
+  "${candidate[@]}" config --quiet
+  activated=true
+  cp "$backup/new-env" "$env_file"
+  cp "$backup/new-override" "$tls_override"
+  local active=(docker compose --env-file "$env_file" -f "$compose_file")
+  if [[ -f "${release_dir}/current.compose.json" ]]; then active+=(-f "${release_dir}/current.compose.json"); fi
+  active+=(-f "$tls_override")
+  "${active[@]}" up -d --no-build --wait --wait-timeout 120 daemon web
+  if [[ "$previous_dir" == "${deploy_dir}/.https-certs."* && "$previous_dir" != "$tls_dir" && ! -L "$previous_dir" ]]; then
+    local previous_suffix="${previous_dir#"${deploy_dir}/.https-certs."}"
+    if [[ "$previous_suffix" =~ ^[a-zA-Z0-9]+$ ]]; then rm -rf "$previous_dir"; fi
+  fi
+  echo "HTTPS configured at ${origin}; HTTP mode: ${mode}."
+  echo "Certificate files retained in ${tls_dir}; rotate with https reload --cert FILE --key FILE."
+)
+
+https_reload() {
+  local hostname mode port
+  hostname="$(read_env OPSRABBIT_HTTPS_HOSTNAME)"
+  mode="$(read_env OPSRABBIT_HTTPS_HTTP_MODE)"
+  port="$(read_env OPSRABBIT_HTTPS_PORT)"
+  [[ $# -gt 0 ]] || { fail "Usage: opsrabbitctl https reload --cert FULLCHAIN --key PRIVATE_KEY"; return 2; }
+  local arg
+  for arg in "$@"; do
+    case "$arg" in --hostname|--http-mode|--https-port) fail "Reload only accepts --cert and --key; use configure to change settings."; return 2 ;; esac
+  done
+  https_configure --hostname "$hostname" --http-mode "$mode" --https-port "$port" "$@"
+}
+
 case "${1:-}" in
+  https)
+    case "${2:-}" in
+      configure) https_configure "${@:3}" ;;
+      reload) https_reload "${@:3}" ;;
+      *) fail "Usage: opsrabbitctl https {configure --hostname HOST --cert FILE --key FILE [--http-mode keep|redirect|disable] [--https-port PORT]|reload --cert FILE --key FILE}"; exit 2 ;;
+    esac
+    ;;
   auth)
     case "${2:-}" in
       configure) auth_configure ;;
@@ -250,7 +422,16 @@ case "${1:-}" in
   health)
     curl --fail --show-error --silent "http://127.0.0.1:${backend_port}/health"
     echo
-    curl --fail --show-error --silent --output /dev/null "http://127.0.0.1:${web_port}/"
+    if [[ -f "$tls_override" ]]; then
+      hostname="$(read_env OPSRABBIT_HTTPS_HOSTNAME)"
+      port="$(read_env OPSRABBIT_HTTPS_PORT)"
+      bind="$(optional_env WEB_BIND_ADDRESS)"; bind="${bind:-0.0.0.0}"
+      [[ "$bind" != 0.0.0.0 ]] || bind=127.0.0.1
+      curl --noproxy '*' --fail --show-error --silent --output /dev/null \
+        --resolve "${hostname}:${port}:${bind}" "https://${hostname}:${port}/"
+    else
+      curl --fail --show-error --silent --output /dev/null "http://127.0.0.1:${web_port}/"
+    fi
     echo "Web health check passed."
     curl --fail --show-error --silent --output /dev/null "http://127.0.0.1:${opensandbox_port}/health"
     unauthenticated_status="$(
@@ -268,7 +449,7 @@ case "${1:-}" in
     echo "OpenSandbox health, authentication, and sandbox image checks passed."
     ;;
   *)
-    echo "Usage: opsrabbitctl {update|deploy [--adopt]} [--version vX.Y.Z] [--ecr-password-stdin] {--backup-confirmed|--skip-backup} | {auth {configure|login|status}|login|start|stop|restart|status|logs [service]|health}" >&2
+    echo "Usage: opsrabbitctl {update|deploy [--adopt]} [--version vX.Y.Z] [--ecr-password-stdin] {--backup-confirmed|--skip-backup} | {auth {configure|login|status}|login|start|stop|restart|status|logs [service]|health|https configure|https reload}" >&2
     exit 2
     ;;
 esac
