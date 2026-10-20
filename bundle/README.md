@@ -164,7 +164,7 @@ The workload image must contain the root-owned native Bubblewrap copy at `/opt/o
 - The daemon mounts the Docker socket because existing admin-only plugin lifecycle features manage sibling containers. Protect OpsRabbit admin access accordingly.
 - The OpenSandbox server also mounts the Docker socket and is host-adjacent infrastructure. Its lifecycle API binds only to loopback, while dynamically created sandbox ports use the configured host range: `20000-29999` in installer `v1.3.3`, or `40000-41000` in release `v1.3.2` until migrated. Deny the active range (both during migration) from untrusted networks with the cloud firewall/security group and Docker-aware forwarding policy before enabling sandbox execution.
 - Bubblewrap AppArmor compatibility is configured only when `kernel.apparmor_restrict_unprivileged_userns=1`. Ordinary `/usr/bin/bwrap` callers retain the packaged or bundled capability-denying policy. A separate image-only browser entrypoint uses capability-denied controllers and the fixed Chromium namespace-capability policy, preserving Chromium's sandbox and the host-wide restriction. Validate other local Bubblewrap workloads on a shared host.
-- The included Compose file serves HTTP. Terminate production TLS at a reverse proxy or load balancer and set the public origin to its HTTPS URL.
+- The default Compose setup serves HTTP. Enable optional TLS in the existing Nginx with `opsrabbitctl https configure`, or terminate TLS at a load balancer and set the public origin to its HTTPS URL.
 - Keep SSH key-only, restrict administration sources, and do not expose ports 54329 or 8384 publicly.
 
 ## Re-running the installer
@@ -204,3 +204,50 @@ opsrabbitctl update --version v1.1.2 --backup-confirmed
 The helper stores current/pending manifests under `.release` with private directory permissions and locks release operations. On interruption, `status` reports the pending release and start/restart refuses to bypass recovery. Resume with the **same** version and backup confirmation after investigating the failure. No automatic rollback is attempted; older versions are rejected because database compatibility cannot be inferred from an image tag.
 
 Updates require maintenance downtime. Put any external frontend proxy/cache into maintenance as well; stopping the Compose web service cannot invalidate a browser tab or an externally hosted frontend. All customer-facing serving must be restored only after the matched backend/frontend pair is verified. Restart/start does not discover a newer version. Image updates do not update helper code, Compose/TOML files or host policies; upgrade those separately when a release requires it.
+
+## Post-install HTTPS with the existing Nginx
+
+A fresh Compose installation serves HTTP only. HTTPS is optional and uses the existing web container's Nginx; no ACM, DNS provider, certificate issuer or additional proxy service is required. These commands apply to Compose deployments, not the separate ECS template. Use a web image that includes the OpsRabbit `WEB_TLS_MODE` entrypoint and HTTPS templates.
+
+Obtain a certificate separately and configure DNS for a hostname you control. For a private EC2 instance, use a certificate issuer's DNS-validation method if the server cannot receive public validation requests. Certificate issuance and DNS changes are not performed by this CLI. EventBridge requires a publicly trusted certificate; a self-signed certificate is suitable only for isolated tests or clients configured to trust it.
+
+Run as the deployment user, with Docker access and permission to read the supplied files:
+
+```bash
+opsrabbitctl https configure \
+  --hostname opsrabbit.example.com \
+  --cert /secure/path/fullchain.pem \
+  --key /secure/path/privkey.pem \
+  --http-mode keep
+```
+
+The PEM certificate file must contain the leaf certificate first, followed by its intermediate chain. Supply the matching, unencrypted PEM private key. The command checks certificate readability, expiry, hostname and key matching. It does not establish public trust or verify the complete chain; check the final endpoint with a normal TLS client. OpenSSL from the supported Debian/Ubuntu host and Docker Compose **2.24.4 or newer** are required; vendor suffixes such as `-desktop.1` are accepted. Deployment directory paths for this command must contain only letters, digits, underscores, dots, slashes and hyphens; bind addresses currently support IPv4.
+
+| HTTP mode | Published ports | Behavior |
+| --- | --- | --- |
+| `keep` (default) | Existing HTTP port and HTTPS 443 | Serve HTTP and HTTPS independently |
+| `redirect` | Existing HTTP port and HTTPS 443 | Redirect HTTP requests to HTTPS |
+| `disable` | HTTPS 443 only | Remove the web container's published HTTP port |
+
+Use `--https-port 8443` for a different host HTTPS port in `keep` or `disable` mode. Redirect mode requires port 443 because the existing Nginx redirect template uses standard HTTPS URLs. Nginx uses port 443 inside the container in all HTTPS modes. Check that the chosen host ports are free and adjust the firewall/security group deliberately; this command does not change network access. Keeping HTTP allows unencrypted requests, including webhook credentials sent over HTTP, so use the HTTPS URL for authenticated traffic.
+
+Configuration validates the merged Compose manifest, copies certificates beneath protected deployment directories, creates `docker-compose.https.yml`, and sets `OPSRABBIT_WEB_ORIGIN` and `OPSRABBIT_NODE_BASE_URL` to the HTTPS origin and its `/api` URL. It recreates the web and daemon services as needed, waits up to 120 seconds for health, and restores the previous configuration with a service-recovery attempt if activation fails or receives an interrupt. Expect a brief service interruption. Both protocols being reachable does not configure separate application login origins: HTTPS becomes the canonical application origin.
+
+The backend remains HTTP on the Docker network. The certificate and key are mounted read-only into the existing Nginx container. Their host parent directories are mode `0700`; mounted files are readable by the non-root container process. No certificate or key content is printed by the helper. Restrict deployment-user and Docker access.
+
+Rotate certificates after renewal with:
+
+```bash
+opsrabbitctl https reload \
+  --cert /secure/path/renewed-fullchain.pem \
+  --key /secure/path/renewed-privkey.pem
+opsrabbitctl health
+```
+
+`reload` requires both files, revalidates them, preserves the saved hostname/HTTP mode/HTTPS port, and recreates the web container to switch read-only certificate mounts. It is not an in-place Nginx signal. The new configuration is committed before removing the previous managed certificate copy. A cleanup failure reports the unused directory and keeps the new HTTPS configuration active. If activation and service recovery both fail, the command retains and reports the protected recovery snapshot and candidate certificates; inspect the running services and restore the required files from that snapshot before retrying. Source files are never deleted or edited. Certificate issuance, renewal scheduling and invoking this command after renewal remain your responsibility. Re-run `https configure` to change hostname, mode or port.
+
+All regular helper lifecycle commands automatically include the saved HTTPS override. The health command checks the backend over loopback HTTP and the web endpoint over HTTPS with hostname/chain verification. For a private CA used by internal clients, configure the client's trust store. The container's local readiness probe bypasses certificate trust verification only to check that its HTTPS listener is running.
+
+For an existing installation, upgrade the installed helper and its bundled authentication/release libraries using the installer migration procedure before using these commands. Do not replace only the helper on a legacy installation. An existing base Compose file can remain unchanged; `!override` replaces its port list. Running Docker Compose manually without `-f docker-compose.https.yml` omits the saved TLS setup. Do not delete that override while HTTPS origin settings remain active. If a configure process is forcibly killed, inspect deployment state before removing a stale `.https-lock` directory and re-running configuration.
+
+For EventBridge to reach a private endpoint, configure its private API Destination and VPC Lattice connectivity separately. Enabling HTTPS does not make a private instance internet-accessible.
