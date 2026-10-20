@@ -5,12 +5,20 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 test_root="$(mktemp -d /tmp/opsrabbit-https-test.XXXXXX)"
 export OPSRABBIT_DEPLOY_DIR="$test_root"
-project="opsrabbit-https-test-$$"
+project="opsrabbit-https-test-$(printf '%s' "${test_root##*.}" | tr '[:upper:]' '[:lower:]')"
 export COMPOSE_PROJECT_NAME="$project"
 cleanup() {
-  docker compose --env-file "$test_root/.env" -f "$test_root/docker-compose.yml" \
-    -f "$test_root/docker-compose.https.yml" down --volumes >/dev/null 2>&1 || true
+  local result=$?
+  local teardown=(docker compose --env-file "$test_root/.env" -f "$test_root/docker-compose.yml")
+  if [[ -f "$test_root/docker-compose.https.yml" ]]; then teardown+=(-f "$test_root/docker-compose.https.yml"); fi
+  if [[ -f "$test_root/docker-compose.yml" ]]; then
+    if ! "${teardown[@]}" down --volumes >/dev/null; then
+      echo "Test service cleanup failed; configuration retained at $test_root" >&2
+      exit 1
+    fi
+  fi
   rm -rf "$test_root"
+  exit "$result"
 }
 trap cleanup EXIT
 openssl req -x509 -newkey rsa:2048 -nodes -days 2 -subj /CN=opsrabbit.example.com \
@@ -45,6 +53,11 @@ services:
     environment:
       WEB_TLS_MODE: http
       WEB_API_UPSTREAM: http://daemon:8384
+    healthcheck:
+      interval: 1s
+      timeout: 5s
+      retries: 20
+      start_period: 1s
     depends_on:
       daemon: {condition: service_healthy}
 YAML
