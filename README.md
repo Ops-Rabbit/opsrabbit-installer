@@ -267,3 +267,7 @@ All regular helper lifecycle commands automatically include the saved HTTPS over
 For an existing installation, upgrade the installed helper and its bundled authentication/release libraries using the installer migration procedure before using these commands. Do not replace only the helper on a legacy installation. An existing base Compose file can remain unchanged; `!override` replaces its port list. Running Docker Compose manually without `-f docker-compose.https.yml` omits the saved TLS setup. Do not delete that override while HTTPS origin settings remain active. If a configure process is forcibly killed, inspect deployment state before removing a stale `.https-lock` directory and re-running configuration.
 
 For EventBridge to reach a private endpoint, configure its private API Destination and VPC Lattice connectivity separately. Enabling HTTPS does not make a private instance internet-accessible.
+
+## AWS Spot notification setup
+
+See [Send AWS Spot notifications to private OpsRabbit](docs/aws-spot-notifications.md) for same-account and cross-account setup with copyable AWS CLI examples.
