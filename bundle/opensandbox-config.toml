@@ -21,7 +21,7 @@ path = "/var/lib/opensandbox/opensandbox.db"
 network_mode = "bridge"
 host_ip = "host.docker.internal"
 # Dedicated pool below Linux's usual ephemeral range; check host availability.
-# A larger pool reduces collisions but does not fix the upstream allocator.
+# The patched lifecycle server delegates ranged port allocation to Docker.
 port_range_min = 20000
 port_range_max = 29999
 drop_capabilities = ["AUDIT_WRITE", "MKNOD", "NET_ADMIN", "NET_RAW", "SYS_ADMIN", "SYS_MODULE", "SYS_PTRACE", "SYS_TIME", "SYS_TTY_CONFIG"]

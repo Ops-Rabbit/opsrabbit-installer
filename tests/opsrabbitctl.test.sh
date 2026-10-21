@@ -92,7 +92,7 @@ fi
 grep -Fq "|pull --platform linux/amd64 123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:v1.0.0" "${command_log}"
 grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml pull" "${command_log}"
 grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml stop daemon" "${command_log}"
-grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build opensandbox-server" "${command_log}"
+grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --wait opensandbox-server" "${command_log}"
 grep -Fq "|network connect bridge opensandbox-test-container" "${command_log}"
 grep -Fq "|compose --env-file ${deploy_dir}/.env -f ${deploy_dir}/docker-compose.yml up -d --no-build --wait web" "${command_log}"
 

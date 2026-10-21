@@ -120,12 +120,13 @@ ecr_login() {
 
   if [[ "${1:-}" == --ecr-password-stdin ]]; then
     local supplied_ecr_password=""
-    export -n supplied_ecr_password
     if [[ -t 0 ]]; then
       echo "Pipe an ECR password into --ecr-password-stdin." >&2
       return 1
     fi
-    if ! { IFS= read -r supplied_ecr_password || [[ -n "${supplied_ecr_password}" ]]; } || [[ -z "${supplied_ecr_password}" ]]; then
+    if { IFS= read -r supplied_ecr_password || [[ -n "${supplied_ecr_password}" ]]; } && [[ -n "${supplied_ecr_password}" ]]; then
+      export -n supplied_ecr_password
+    else
       echo "A non-empty ECR password is required on stdin." >&2
       return 1
     fi
@@ -171,6 +172,12 @@ auth_validate() {
     fi
     echo "  ${image}: OK"
   done
+  image="$(opensandbox_image)" || return 1
+  if ! docker manifest inspect "${image}" >/dev/null; then
+    echo "Cannot read image ${image}. Check image existence and ECR pull permissions for the identity above." >&2
+    return 1
+  fi
+  echo "  ${image}: OK"
 }
 
 authenticate() {
@@ -180,6 +187,23 @@ authenticate() {
     echo "Deployment stopped before changing services. Run: opsrabbitctl auth login" >&2
     return 1
   fi
+}
+
+opensandbox_image() {
+  "${compose[@]}" config --format json \
+    | jq -er '.services["opensandbox-server"].image | select(type == "string" and length > 0)'
+}
+
+verify_service_image() {
+  local service="$1" image="$2" container actual expected
+  container="$("${compose[@]}" ps -q "${service}")" || return 1
+  [[ -n "${container}" ]] || { echo "${service} container is missing." >&2; return 1; }
+  expected="$(docker image inspect --format '{{.Id}}' "${image}")" || return 1
+  actual="$(docker inspect --format '{{.Image}}' "${container}")" || return 1
+  [[ -n "${expected}" && "${actual}" == "${expected}" ]] || {
+    echo "${service} is not running the configured image ${image}." >&2
+    return 1
+  }
 }
 
 connect_opensandbox_runtime_bridge() {
@@ -197,6 +221,14 @@ connect_opensandbox_runtime_bridge() {
   fi
 }
 
+start_opensandbox() {
+  local image
+  image="$(opensandbox_image)" || return 1
+  "${compose[@]}" up -d --no-build "$@" --wait opensandbox-server || return 1
+  connect_opensandbox_runtime_bridge || return 1
+  verify_service_image opensandbox-server "${image}"
+}
+
 start_services() {
   local remove_orphans=()
   if [[ "${1:-}" == "remove-orphans" ]]; then
@@ -206,8 +238,7 @@ start_services() {
   # OpenSandbox creates sandboxes on Docker's built-in bridge because its
   # deny-all network policy is implemented there. Join only the lifecycle
   # service to that bridge before the backend can send sandbox traffic.
-  "${compose[@]}" up -d --no-build "${remove_orphans[@]}" opensandbox-server
-  connect_opensandbox_runtime_bridge
+  start_opensandbox "${remove_orphans[@]}" || return 1
   "${compose[@]}" up -d --no-build "${remove_orphans[@]}" --wait
 }
 
@@ -264,7 +295,10 @@ https_configure() (
   [[ "$hostname" =~ ^[a-zA-Z0-9]([a-zA-Z0-9.-]*[a-zA-Z0-9])?$ && "$hostname" == *.* && "$hostname" != *..* ]] || {
     fail "Supply a DNS hostname without a scheme, port or path."; exit 2;
   }
-  case "$mode" in keep|redirect|disable) ;; *) fail "HTTP mode must be keep, redirect or disable."; exit 2 ;; esac
+  case "$mode" in
+    keep|redirect|disable) ;;
+    *) fail "HTTP mode must be keep, redirect or disable."; exit 2 ;;
+  esac
   if [[ ! "$port" =~ ^[1-9][0-9]{0,4}$ ]] || (( port > 65535 )); then
     fail "Invalid HTTPS port."; exit 2
   fi
@@ -273,11 +307,12 @@ https_configure() (
   [[ "$mode" != redirect || "$port" == 443 ]] || { fail "Redirect mode requires HTTPS port 443."; exit 2; }
   validate_certificate "$cert" "$key" "$hostname"
   local version major minor patch
+  local version_pattern='^v?([0-9]+)\.([0-9]+)\.([0-9]+)([-+][0-9A-Za-z.~+-]+)?$'
   version="$(docker compose version --short)"
-  if [[ "$version" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)([-+][0-9A-Za-z.~+-]+)?$ ]]; then
-    major=$((10#${BASH_REMATCH[1]}))
-    minor=$((10#${BASH_REMATCH[2]}))
-    patch=$((10#${BASH_REMATCH[3]}))
+  if [[ "$version" =~ $version_pattern ]]; then
+    major=$(( "10#${BASH_REMATCH[1]}" ))
+    minor=$(( "10#${BASH_REMATCH[2]}" ))
+    patch=$(( "10#${BASH_REMATCH[3]}" ))
   else
     fail "Cannot determine Compose version."; exit 1
   fi
@@ -394,7 +429,9 @@ https_reload() {
   [[ $# -gt 0 ]] || { fail "Usage: opsrabbitctl https reload --cert FULLCHAIN --key PRIVATE_KEY"; return 2; }
   local arg
   for arg in "$@"; do
-    case "$arg" in --hostname|--http-mode|--https-port) fail "Reload only accepts --cert and --key; use configure to change settings."; return 2 ;; esac
+    case "$arg" in
+      --hostname|--http-mode|--https-port) fail "Reload only accepts --cert and --key; use configure to change settings."; return 2 ;;
+    esac
   done
   https_configure --hostname "$hostname" --http-mode "$mode" --https-port "$port" "$@"
 }
@@ -471,6 +508,7 @@ case "${1:-}" in
       | curl --fail --show-error --silent --output /dev/null --header @- \
         "http://127.0.0.1:${opensandbox_port}/v1/sandboxes"
     docker image inspect "${sandbox_image}" >/dev/null
+    verify_service_image opensandbox-server "$(opensandbox_image)"
     echo "OpenSandbox health, authentication, and sandbox image checks passed."
     ;;
   *)

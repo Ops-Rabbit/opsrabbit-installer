@@ -28,8 +28,9 @@ case "$args" in
     # This customer's worker belongs to the background profile.
     if [[ "$args" == *'--profile *'* || "$args" == *'--profile background'* ]]; then echo worker; fi
     exit 0 ;;
-  *'config --quiet'|*' pull'*|*' ps') exit 0 ;;
-  *' ps -q opensandbox-server') echo fixture-provider; exit 0 ;;
+  *'config --format json') cat "$TEST_RELEASE_ROOT/compose.json"; exit 0 ;;
+  *' pull') [[ "${TEST_FAILURE:-}" != provider-pull ]]; exit ;;
+  *'config --quiet'|*' ps') exit 0 ;;
   *' ps -q '*) service="${*: -1}"; if jq -e --arg service "$service" '.[$service] != null' "$state" >/dev/null; then echo "fixture-$service"; fi; exit 0 ;;
 esac
 service="${*: -1}"
@@ -40,7 +41,16 @@ if [[ "$args" == *' stop '* ]]; then
 fi
 if [[ "$args" == *' up '* ]]; then
   [[ "${TEST_FAILURE:-}" != "$service" ]] || { echo "Fixture $service startup failed" >&2; exit 1; }
-  if [[ "$service" == opensandbox-server ]]; then exit 0; fi
+  if [[ "$service" == opensandbox-server ]]; then
+    if [[ "${TEST_FAILURE:-}" == provider-unhealthy && "$args" == *'--wait '* ]]; then
+      echo 'Fixture lifecycle service unhealthy' >&2; exit 1
+    fi
+    image="$(jq -er '.services["opensandbox-server"].image' "$TEST_RELEASE_ROOT/compose.json")"
+    if [[ "${TEST_FAILURE:-}" == provider-image ]]; then image=customer.invalid/lifecycle:old; fi
+    printf 'up %s %s\n' "$service" "$image" >> "$log"
+    jq --arg image "$image" '.["opensandbox-server"]=$image' "$state" > "$state.next"; mv "$state.next" "$state"
+    exit 0
+  fi
   override=""
   while [[ "$#" -gt 0 ]]; do
     if [[ "$1" == -f ]]; then override="$2"; shift; fi

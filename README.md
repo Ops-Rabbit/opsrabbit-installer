@@ -20,7 +20,7 @@ To install another version, replace `v1.5.0` in the URL with the required releas
 - x86-64 CPU architecture
 - `root` or passwordless `sudo` for the initial installation
 - Network access to the configured Amazon ECR registry and public container registries
-- ECR pull permissions for the OpsRabbit backend, web, and sandbox images
+- ECR pull permissions for `vg-backend`, `vg-webapp`, `vg-sandbox`, and `vg-opensandbox-server`
 - An EC2 instance role, existing AWS CLI credentials, or an AWS access key
 - DNS/firewall configuration appropriate for the chosen public URL
 
@@ -44,7 +44,7 @@ The AWS identity needs at least:
 }
 ```
 
-In a tighter IAM policy, keep `ecr:GetAuthorizationToken` on `*` and scope the other actions to the three repository ARNs.
+In a tighter IAM policy, keep `ecr:GetAuthorizationToken` on `*` and scope the other actions to the four repository ARNs. Cross-account pulls also require the corresponding ECR repository policies to allow that account or principal.
 
 ## Install
 
@@ -81,7 +81,7 @@ Choose one of the following during installation:
 3. **Use this machine's EC2 role:** explicitly opt in only when that role is intended to pull the deployment images. On a client machine, choose your own login or credentials instead.
 4. **Use an existing AWS CLI profile:** enter a profile already configured for the deployment user. Profiles belonging to `ubuntu`, `ssm-user` or `root` are not copied. Existing IAM Identity Center profiles can renew through device authorization.
 
-The helper displays the selected AWS account and role/user, logs in to ECR, and checks all three configured image manifests before deployment. All image pulls finish before running services are changed. A successful ECR login alone does not prove image access. Failed selection returns to the installer menu; normal deployment/update commands fail with renewal instructions. The helper clears inherited AWS credentials and provider/endpoint overrides. EC2 metadata is disabled unless the instance-role option was explicitly selected.
+The helper displays the selected AWS account and role/user, logs in to ECR, and checks access to the configured backend, web, sandbox workload, and effective Compose lifecycle-server image during authentication setup/login. Initial product-image placeholders are checked after release selection. Deploy/update pulls all candidate images and Compose dependencies before running services are changed. A successful ECR login alone does not prove image access. Failed selection returns to the installer menu; normal deployment/update commands fail with renewal instructions. The helper clears inherited AWS credentials and provider/endpoint overrides. EC2 metadata is disabled unless the instance-role option was explicitly selected.
 
 The method/profile selection is stored in `/opt/opsrabbit/.aws-auth` with mode `0600`. Temporary credentials are stored separately in the deployment user's `~/.aws/opsrabbit/credentials` with directory mode `0700` and file mode `0600`; they are never written to the application's `.env`. Browser login uses `~/.aws/opsrabbit/config` and AWS CLI's login cache. Existing profiles use that user's standard AWS CLI files. Successful switches away from temporary credentials remove the managed credentials file. AWS CLI owns browser/SSO session expiry and cache management.
 
@@ -118,7 +118,7 @@ opsrabbitctl stop
 opsrabbitctl start
 ```
 
-`opsrabbitctl update --backup-confirmed` selects the highest complete stable product release, validates its paired version manifest and selected AWS access, pulls all candidate images, stops web before the backend, waits for the new daemon and workers, then starts and verifies the matched web image. OpenSandbox remains available during backend shutdown for managed-sandbox cleanup. A failed update keeps web stopped and records the pending version for explicit recovery. `stop` and `restart` use the same cleanup ordering. `opsrabbitctl health` also verifies OpenSandbox authentication and confirms that the configured sandbox image is present.
+`opsrabbitctl update --backup-confirmed` selects the highest complete stable product release, validates its paired version manifest and selected AWS access, pulls all candidate images, stops web before the backend, waits for OpenSandbox health and verifies its running image, waits for the new daemon and workers, then starts and verifies the matched web image. OpenSandbox remains available during backend shutdown for managed-sandbox cleanup. A failed update after maintenance starts keeps web stopped and records the pending version for explicit recovery. `stop` and `restart` use the same cleanup ordering. `opsrabbitctl health` also verifies OpenSandbox authentication, checks that the running lifecycle container matches its effective Compose image, and confirms that the configured workload image is present.
 
 To proceed without confirming a backup, use `opsrabbitctl update --skip-backup` (also supported by `deploy`). Choose either `--backup-confirmed` or `--skip-backup`; without either, commands keep requiring backup confirmation. Neither flag creates a backup. The one-time `migrate.sh` entrypoint still requires `--backup-confirmed`.
 
@@ -136,7 +136,7 @@ The installer starts OpenSandbox but does not silently enable command sandboxing
 
 Use session or agent scope, keep worker splitting disabled, and use the workspace-only filesystem policy with deny-all networking for the strict default. Run one controlled command after enabling the provider and confirm that it succeeds.
 
-The `v1.3.3` bundle uses sandbox host-port pool `20000-29999` (10,000 ports). The `v1.3.2` installer uses `40000-41000`; installations from that release need the migration below before using the new range. Check existing host listeners, Docker port bindings, and `sysctl net.ipv4.ip_local_port_range` before using it. The new pool avoids Linux's usual `32768-60999` ephemeral range and reduces collisions, but does not eliminate upstream sandbox port-allocation races.
+Since `v1.3.3`, the bundle uses sandbox host-port pool `20000-29999` (10,000 ports). The `v1.3.2` installer uses `40000-41000`; installations from that release need the migration below before using the new range. Check existing host listeners, Docker port bindings, and `sysctl net.ipv4.ip_local_port_range` before using it. The pool avoids Linux's usual `32768-60999` ephemeral range, but a range change alone does not fix upstream sandbox port-allocation races. The patched lifecycle image described below addresses that allocation race; capacity exhaustion or unrelated host listeners can still prevent allocation.
 
 For an existing installation using `40000-41000`, update only `port_range_min` and `port_range_max` in `/opt/opsrabbit/opensandbox-config.toml`, preserving other settings. Apply your existing trusted-network restrictions to the new range, then run `cd /opt/opsrabbit && docker compose up -d --no-deps --force-recreate --wait opensandbox-server`. Keep the old range protected until existing sandboxes retire; their ports remain unchanged. Preserve `opensandbox-state` and allow a brief lifecycle/proxy interruption during recreation. No image rebuild is required.
 
@@ -144,7 +144,7 @@ For an existing installation using `40000-41000`, update only `port_range_min` a
 
 The `v1.3.3` bundle pins the server, execd, and egress images to the digests in the [official OpenSandbox 1.1.1 release manifest](https://github.com/opensandbox-group/OpenSandbox/blob/release-1.1.1/docs/releases/1.1.1.yaml). This includes the upstream private-procfs compatibility fix needed by the workspace-only browser. These are digest pins, not a claim of verified image signatures or attestations. Published installer `v1.3.2` remains unchanged and contains the older provider images.
 
-Pair this bundle with a backend image containing [OpsRabbit PR #914](https://github.com/applied-ai-consulting/gaurav-exp/pull/914), including its SDK 1.1.1 byte-range file-download fix. Do not upgrade the provider independently of that backend fix.
+Pair this bundle with a backend image containing the SDK 1.1.1 byte-range file-download fix. Do not upgrade the provider independently of that backend fix.
 
 For an existing deployment:
 
@@ -155,9 +155,26 @@ For an existing deployment:
 
 The provider upgrade itself does not require rebuilding the OpsRabbit sandbox workload image. Existing sandbox containers retain their old execd/egress runtime until replaced. Ubuntu AppArmor/user-namespace setup is unchanged; this update does not disable host restrictions or require a reboot.
 
+## Patched OpenSandbox lifecycle-server upgrade
+
+```text
+vg-opensandbox-server:1.1.1-opsrabbit.1@sha256:b6e24fe81bb3a5ee1bfbe3169990b129e748f775d878f5272b58cef27a0cf704
+```
+
+Docker allocates data-plane host ports atomically within the configured pool, rather than the server checking a free port and binding it later. Endpoint discovery follows the actual Docker binding, including egress-sidecar network ownership. This is an OpsRabbit downstream overlay, not an upstream OpenSandbox release or a claim of verified signatures/attestations. `OPSRABBIT_SANDBOX_IMAGE` remains the separate `vg-sandbox` workload image. No workload rebuild is required for this provider-only change; execd/egress pins, API key, AppArmor and port range remain unchanged.
+
+For an existing host already on the documented OpenSandbox 1.1.1/browser configuration:
+
+1. Grant the selected deployment identity pull access to `vg-opensandbox-server`, including its cross-account repository policy where applicable. Back up the database, lifecycle state, `.env`, Compose and TOML securely. Disable application sandbox execution and allow managed sandboxes to retire before recreating the lifecycle service.
+2. Edit **only** `services.opensandbox-server.image` in the deployed `docker-compose.yml` to the pin in [the source Compose file](bundle/docker-compose.yml), preserving the existing registry, configuration, secrets, volumes and network restrictions. If your registry is a mirror, publish the identical image there first. A custom lifecycle image is preserved and verified against that effective Compose selection, not silently replaced by the helper.
+3. From the new extracted bundle, refresh the helper and adopt/reapply a compatible complete product release using the [existing-host migration](#upgrade-an-existing-installation-to-installer-v150) procedure (`sudo ./migrate.sh --backup-confirmed --version vX.Y.Z`). This is also a product deployment, not a helper-only refresh. It does **not** copy new Compose/TOML files: step 2 is required. Do not rerun the full installer or delete lifecycle state. All pulls finish before maintenance; the helper then waits for lifecycle health, reconnects the runtime bridge and verifies the running image before starting the application.
+4. Run `opsrabbitctl status` and `opsrabbitctl health`. Confirm no pending release, then enable sandboxing for one controlled thread and verify workspace commands, file reads, permitted network access and browser open → snapshot → close before restoring normal traffic. Existing sandbox settings are never enabled automatically.
+
+Lifecycle recreation briefly interrupts its API/proxy. No host reboot is required. If startup or image verification fails after maintenance starts, web stays stopped and the pending product version must be recovered as described below. Earlier failures during image pulls leave the existing services unchanged.
+
 ## Browser/AppArmor compatibility upgrade
 
-The `v1.3.3` bundle also carries the browser policy for [OpsRabbit PR #916](https://github.com/applied-ai-consulting/gaurav-exp/pull/916). Published installer `v1.3.2` does not include it. Unlike the provider-only 1.1.1 upgrade above, this browser fix requires a **rebuilt sandbox workload image and matching backend** containing #916. Keep the existing image tags if desired, but verify their new digests contain that fix before upgrading.
+The `v1.3.3` bundle also carries the browser-specific AppArmor policy. Published installer `v1.3.2` does not include it. Unlike the provider-only 1.1.1 upgrade above, this browser fix requires a **rebuilt sandbox workload image and matching backend** containing the browser compatibility fix. Keep the existing image tags if desired, but verify their new digests contain that fix before upgrading.
 
 On restricted Ubuntu hosts, the bundled root installer installs both required policy layers automatically. For an existing deployment, use the newly downloaded source/release bundle without rerunning its full installer:
 

@@ -92,6 +92,9 @@ case "$*" in
     if [[ "${TEST_FAILURE:-}" == token ]]; then echo "Rejected $token" >&2; exit 1; fi
     ;;
   'manifest inspect '*)
+    if [[ "${TEST_FAILURE:-}" == provider-manifest && "$*" == *'customer.invalid/lifecycle:v2.3.4' ]]; then
+      echo 'Access denied to lifecycle image' >&2; exit 1
+    fi
     if [[ "${TEST_FAILURE:-}" == manifest && ( "$*" == *'/web:test' || "$*" == *'/vg-webapp:v'* ) ]]; then
       echo 'Access denied to web image' >&2; exit 1
     fi
@@ -215,7 +218,8 @@ printf '4\nfixture-profile\n' > "${input}"
 run_ctl auth configure
 [[ "$(cat "${state}")" == $'profile\nfixture-profile' ]]
 [[ "$(stat -c %a "${state}")" == 600 ]]
-[[ "$(grep -c '^docker manifest inspect ' "${log}")" == 3 ]]
+[[ "$(grep -c '^docker manifest inspect ' "${log}")" == 4 ]]
+grep -Fxq 'docker manifest inspect customer.invalid/lifecycle:v2.3.4' "${log}"
 assert_no_service_changes
 assert_ephemeral_cleanup
 echo 'PASS: explicit profile verifies all images and ignores every ambient provider'
@@ -233,13 +237,19 @@ echo 'PASS: supplied token updates without renewing or replacing the selected AW
 for action in login deploy update; do
   run_ctl "${action}"
   if [[ "${action}" == login ]]; then
-    [[ "$(grep -c '^docker manifest inspect ' "${log}")" == 3 ]]
+    [[ "$(grep -c '^docker manifest inspect ' "${log}")" == 4 ]]
   else
     grep -q '^docker pull ' "${log}"
   fi
   assert_ephemeral_cleanup
 done
 echo 'PASS: login, deploy and update share selected authentication and preflight'
+
+failure="provider-manifest"
+if run_ctl login; then echo 'Accepted inaccessible configured lifecycle image'; exit 1; fi
+grep -q 'Cannot read image customer.invalid/lifecycle:v2.3.4' "${output}"
+assert_no_service_changes
+assert_ephemeral_cleanup
 
 for failure in identity ecr manifest tmpdir permissions; do
   if run_ctl deploy; then echo "Accepted failed ${failure}"; exit 1; fi

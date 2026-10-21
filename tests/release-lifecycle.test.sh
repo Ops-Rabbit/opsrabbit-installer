@@ -56,6 +56,19 @@ cmp "$test_root/original.env" "$OPSRABBIT_DEPLOY_DIR/.env"
 if TEST_FAILURE=metadata "$ctl" deploy --adopt --backup-confirmed > "$test_root/output" 2>&1; then exit 1; fi
 [[ ! -e "$test_root/lifecycle.log" && ! -e "$OPSRABBIT_DEPLOY_DIR/.release/pending.json" ]]
 cmp "$test_root/original.env" "$OPSRABBIT_DEPLOY_DIR/.env"
+# A private lifecycle dependency must be pulled before any maintenance starts.
+if TEST_FAILURE=provider-pull "$ctl" deploy --adopt --backup-confirmed > "$test_root/output" 2>&1; then exit 1; fi
+[[ ! -e "$test_root/lifecycle.log" && ! -e "$OPSRABBIT_DEPLOY_DIR/.release/pending.json" ]]
+cmp "$test_root/original.env" "$OPSRABBIT_DEPLOY_DIR/.env"
+# Readiness and actual lifecycle image identity gate application startup.
+for failure in provider-unhealthy provider-image; do
+  if TEST_FAILURE="$failure" "$ctl" deploy --adopt --backup-confirmed > "$test_root/output" 2>&1; then
+    echo "Accepted $failure lifecycle server"; exit 1
+  fi
+  jq -e '.daemon == null and .web == null' "$test_root/containers.json" >/dev/null
+  [[ -f "$OPSRABBIT_DEPLOY_DIR/.release/pending.json" ]]
+  if grep -Eq '^up (daemon|web) ' "$test_root/lifecycle.log"; then echo 'Started application before lifecycle verification'; exit 1; fi
+done
 # A post-worker-stop failure must retain intent and prevent stale frontend serving.
 if TEST_FAILURE=daemon "$ctl" deploy --adopt --backup-confirmed > "$test_root/output" 2>&1; then exit 1; fi
 jq -e '.worker == null and .web == null' "$test_root/containers.json" >/dev/null
@@ -92,6 +105,11 @@ done
 "$ctl" update --skip-backup --version v1.1.1 > "$test_root/output" 2>&1
 grep -Fxq OPSRABBIT_SANDBOX_IMAGE=customer.invalid/workload:v2.3.4 "$OPSRABBIT_DEPLOY_DIR/.env"
 OPSRABBIT_TEST_API_KEY=fixture-secret "$ctl" health > "$test_root/output" 2>&1
+# Healthy endpoints cannot hide a stale running lifecycle image.
+jq '.["opensandbox-server"]="customer.invalid/lifecycle:old"' "$test_root/containers.json" > "$test_root/containers.next"
+mv "$test_root/containers.next" "$test_root/containers.json"
+if OPSRABBIT_TEST_API_KEY=fixture-secret "$ctl" health > "$test_root/output" 2>&1; then echo 'Health accepted stale lifecycle image'; exit 1; fi
+grep -q 'opensandbox-server is not running the configured image' "$test_root/output"
 # Exercise the real root migration entrypoint in this disposable Linux container.
 printf '#!/bin/sh\nexit 88\n' > /usr/local/bin/opsrabbitctl
 cp "$OPSRABBIT_DEPLOY_DIR/docker-compose.yml" "$test_root/compose-before"
