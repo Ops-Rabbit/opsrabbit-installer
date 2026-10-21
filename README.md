@@ -4,15 +4,15 @@ This bundle deploys the core OpsRabbit stack and its OpenSandbox lifecycle servi
 
 ## Quick install
 
-Install the tagged `v1.3.4` release on a Debian or Ubuntu host:
+Install the tagged `v1.5.0` release on a Debian or Ubuntu host:
 
 ```bash
-curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.3.4/install.sh | sudo bash
+curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.5.0/install.sh | sudo bash
 ```
 
-This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.3.4` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
+This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.5.0` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
 
-To install another version, replace `v1.3.4` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
+To install another version, replace `v1.5.0` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
 
 ## Requirements
 
@@ -70,7 +70,7 @@ Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRA
 
 It configures Docker's official stable apt repository and installs or upgrades Docker Engine, Buildx, and Compose to that repository's latest candidate. When migrating from distribution-provided Docker packages, their removal can briefly interrupt running containers, but Docker data in `/var/lib/docker` is preserved. It also installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it installs the browser-specific AppArmor policy and uses Ubuntu's packaged Bubblewrap policy for ordinary commands when available, otherwise installing the bundled fallback. Policy changes are rolled back if installation fails. It does not disable the host-wide restriction or require a reboot. This also removes an unchanged conflicting fallback left by installer `v1.3.0` on Ubuntu 26.04.
 
-Product releases use immutable version tags. Floating image aliases are not used. Published installer v1.3.4 assets remain unchanged; the versioned-release functionality in this source tree requires a new installer release before use.
+Product releases use immutable version tags. Floating image aliases are not used. Installer **v1.5.0** includes versioned product-release management and post-install HTTPS commands. Older published release assets remain unchanged. Installer versions and application/product versions are separate.
 
 ## AWS authentication
 
@@ -189,19 +189,45 @@ For a URL-only change, preserve the image pins and edit the relevant URL setting
 
 Licensed under the [Apache License 2.0](LICENSE).
 
-## Adopt versioned product releases on an existing customer host
+## Upgrade an existing installation to installer v1.5.0
 
-Back up PostgreSQL and `/opt/opsrabbit` configuration, including encryption keys, authentication selection and sandbox policies. Download a concrete **new installer release** containing `migrate.sh`, verify its published archive checksum, extract it and review the migration. Existing v1.3.4 downloads do not contain this migration.
+Use this migration for older installations, including hosts installed with v1.3.4 or v1.4.x. **Do not use the fresh-install curl command as the upgrade procedure.** Updating application images alone does not update `opsrabbitctl` or its bundled libraries.
 
-From the extracted bundle:
+1. Schedule maintenance downtime. Back up PostgreSQL, the OpsRabbit data volume, `opensandbox-state`, and the deployment configuration (normally `/opt/opsrabbit`), including `.env`, encryption keys, authentication selection, certificates and sandbox policies. Verify that you can restore the backup. `--backup-confirmed` records your confirmation; it does not create a backup. Check the OpenSandbox prerequisites below before proceeding.
+2. On the existing host, download and verify the pinned installer bundle in a new temporary directory:
 
-```bash
-sudo ./migrate.sh --backup-confirmed
-# Or select an exact product release:
-sudo ./migrate.sh --backup-confirmed --version v1.1.1
-```
+   ```bash
+   upgrade_dir="$(mktemp -d)"
+   cd "$upgrade_dir"
+   release_url="https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.5.0"
+   curl -fSL "$release_url/opsrabbit-aws-image-bundle.tar.gz" -o opsrabbit-aws-image-bundle.tar.gz
+   curl -fSL "$release_url/opsrabbit-aws-image-bundle.tar.gz.sha256" -o opsrabbit-aws-image-bundle.tar.gz.sha256
+   sha256sum --check opsrabbit-aws-image-bundle.tar.gz.sha256 && \
+     tar -xzf opsrabbit-aws-image-bundle.tar.gz
+   ```
 
-For a nonstandard directory, pass the existing `OPSRABBIT_DEPLOY_DIR` through sudo explicitly. Migration installs the new helper and authentication/release libraries and adopts a complete product release. Hosts with an earlier versioned-release helper must also refresh it from this new bundle to switch discovery from GitHub to S3; updating application images alone does not update the helper. The required PostgreSQL/configuration backup remains the operator's responsibility. It does not replace your Compose/TOML files, public URL, secrets or volumes.
+   Expect `opsrabbit-aws-image-bundle.tar.gz: OK`. Stop if either download or checksum verification fails; do not run the migration.
+3. Review `opsrabbit-aws-image-bundle/migrate.sh`, then run **one** of these commands from the extracted bundle:
+
+   ```bash
+   cd opsrabbit-aws-image-bundle
+   # Adopt the latest complete stable application/product release:
+   sudo ./migrate.sh --backup-confirmed
+   # Alternatively, select a specific compatible product version:
+   # sudo ./migrate.sh --backup-confirmed --version vX.Y.Z
+   ```
+
+   Replace `vX.Y.Z` with an actual product version from the release catalog, not installer version `v1.5.0`. For a nonstandard deployment directory, use `sudo env OPSRABBIT_DEPLOY_DIR=/your/existing/path ./migrate.sh --backup-confirmed` instead. The host needs `jq` and `flock` (`util-linux`); install missing prerequisites before migration.
+4. Check the result:
+
+   ```bash
+   opsrabbitctl status
+   opsrabbitctl health
+   ```
+
+   Expect the selected product release to be current, no pending release, and healthy backend, web and OpenSandbox services. Use the same explicit deployment-directory environment setting for a nonstandard path. If migration fails, inspect `status` and follow [Product release selection and recovery](#product-release-selection-and-recovery); do not rerun the fresh installer or downgrade application binaries.
+
+Migration installs the new helper and authentication/release libraries and adopts a complete product release; **it is not a helper-only update**. Hosts with an earlier versioned-release helper also need this refresh. It preserves customer Compose/TOML files, public URL, secrets and volumes. It does not automatically enable HTTPS: after a successful migration, follow [Post-install HTTPS with the existing Nginx](#post-install-https-with-the-existing-nginx). HTTP remains the default.
 
 OpenSandbox must already use the documented 1.1.1 server/execd/egress pins and the required host AppArmor policy. The migration preserves provider configuration; verify compatibility before running it, and complete the provider/browser upgrade sections first. Legacy hosts without `.aws-auth` must explicitly choose their deployment identity. A successful AWS identity check alone does not prove image access; candidate image pulls are required before maintenance.
 
