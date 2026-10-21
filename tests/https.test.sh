@@ -26,6 +26,10 @@ cat > "$test_root/bin/docker" <<'STUB'
 set -euo pipefail
 if [[ "$*" == 'compose version --short' ]]; then echo "${TEST_COMPOSE_VERSION:-2.30.0}"; exit; fi
 printf '%s\n' "$*" >> "$OPSRABBIT_TEST_COMMAND_LOG"
+case "$*" in
+  *'config --format json') echo '{"services":{"opensandbox-server":{"image":"example.invalid/lifecycle:test"}}}'; exit 0 ;;
+  'inspect --format {{.Image}} '*|'image inspect --format {{.Id}} '*) echo sha256:https-fixture-image; exit 0 ;;
+esac
 if [[ "$*" == *' ps -q opensandbox-server' ]]; then echo fixture-container; fi
 if [[ "$*" == *' up '* && -f "$OPSRABBIT_DEPLOY_DIR/fail-both" ]]; then exit 1; fi
 if [[ "$*" == *' up '* && -f "$OPSRABBIT_DEPLOY_DIR/interrupt-once" ]]; then

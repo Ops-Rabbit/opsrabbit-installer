@@ -8,6 +8,7 @@ fixture_revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 jq -n --arg registry "$fixture_registry" --arg revision "$fixture_revision" \
   '{schema_version:1,protocol:1,version:"v1.1.1",revision:$revision,platform:"linux/amd64",images:{backend:($registry+"/vg-backend:v1.1.1"),frontend:($registry+"/vg-webapp:v1.1.1"),sandbox:($registry+"/vg-sandbox:v1.0.0")}}' > "$fixture_root/release.json"
 printf '%s\n' '{"schema_version":1,"versions":["v1.1.1"]}' > "$fixture_root/catalog.json"
+printf '%s\n' '{"services":{"opensandbox-server":{"image":"customer.invalid/lifecycle:v2.3.4"}}}' > "$fixture_root/compose.json"
 cat > "$fixture_bin/curl" <<'CURL'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -32,6 +33,7 @@ cat > "$fixture_bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
+  *'config --format json') cat "$TEST_RELEASE_ROOT/compose.json"; exit 0 ;;
   *'config --services') printf 'postgres\ndaemon\nweb\nopensandbox-server\n'; exit 0 ;;
   *' ps -q daemon'|*' ps -q web') echo fixture-container; exit 0 ;;
   'inspect --format {{.Image}} '*|'image inspect --format {{.Id}} '*) echo sha256:fixture-image-id; exit 0 ;;

@@ -132,7 +132,7 @@ For an existing installation using `40000-41000`, update only `port_range_min` a
 
 The `v1.3.3` bundle pins the server, execd, and egress images to the digests in the [official OpenSandbox 1.1.1 release manifest](https://github.com/opensandbox-group/OpenSandbox/blob/release-1.1.1/docs/releases/1.1.1.yaml). This includes the upstream private-procfs compatibility fix needed by the workspace-only browser. These are digest pins, not a claim of verified image signatures or attestations. Published installer `v1.3.2` remains unchanged and contains the older provider images.
 
-Pair this bundle with a backend image containing [OpsRabbit PR #914](https://github.com/applied-ai-consulting/gaurav-exp/pull/914), including its SDK 1.1.1 byte-range file-download fix. Do not upgrade the provider independently of that backend fix.
+Pair this bundle with a backend image containing the SDK 1.1.1 byte-range file-download fix. Do not upgrade the provider independently of that backend fix.
 
 For an existing deployment:
 
@@ -145,7 +145,7 @@ The provider upgrade itself does not require rebuilding the OpsRabbit sandbox wo
 
 ## Browser/AppArmor compatibility upgrade
 
-The `v1.3.3` bundle also carries the browser policy for [OpsRabbit PR #916](https://github.com/applied-ai-consulting/gaurav-exp/pull/916). Published installer `v1.3.2` does not include it. Unlike the provider-only 1.1.1 upgrade above, this browser fix requires a **rebuilt sandbox workload image and matching backend** containing #916. Keep the existing image tags if desired, but verify their new digests contain that fix before upgrading.
+The `v1.3.3` bundle also carries the browser-specific AppArmor policy. Published installer `v1.3.2` does not include it. Unlike the provider-only 1.1.1 upgrade above, this browser fix requires a **rebuilt sandbox workload image and matching backend** containing the browser compatibility fix. Keep the existing image tags if desired, but verify their new digests contain that fix before upgrading.
 
 On restricted Ubuntu hosts, the bundled root installer installs both required policy layers automatically. For an existing deployment, use the newly downloaded source/release bundle without rerunning its full installer:
 

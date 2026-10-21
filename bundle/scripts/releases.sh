@@ -52,13 +52,10 @@ release_discover() {
 }
 
 release_verify() {
-  local manifest="$1" service image container actual
+  local manifest="$1" service image
   for service in daemon web; do
     if [[ "${service}" == daemon ]]; then image="$(jq -r .images.backend "${manifest}")"; else image="$(jq -r .images.frontend "${manifest}")"; fi
-    container="$("${compose[@]}" ps -q "${service}")"
-    [[ -n "${container}" ]] || return 1
-    actual="$(docker inspect --format '{{.Image}}' "${container}")"
-    [[ "${actual}" == "$(docker image inspect --format '{{.Id}}' "${image}")" ]] || return 1
+    verify_service_image "${service}" "${image}" || return 1
   done
 }
 
@@ -147,8 +144,7 @@ release_deploy() {
   "${compose[@]}" stop daemon
   release_update_env "${release_candidate}"
   sandbox_image="$(read_env OPSRABBIT_SANDBOX_IMAGE)"
-  "${compose[@]}" up -d --no-build opensandbox-server
-  connect_opensandbox_runtime_bridge
+  start_opensandbox || return 1
   "${compose[@]}" up -d --no-build --wait daemon
   if [[ "${worker_running}" == true ]]; then
     # Worker uses exactly the daemon image; stopped optional workers remain stopped.

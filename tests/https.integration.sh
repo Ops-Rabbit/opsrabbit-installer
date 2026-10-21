@@ -38,6 +38,9 @@ OPSRABBIT_NODE_BASE_URL=http://opsrabbit.example.com:18300/api
 ENV
 cat > "$test_root/docker-compose.yml" <<YAML
 services:
+  opensandbox-server:
+    image: node:24.21.0-bookworm-slim
+    command: ["node", "-e", "setInterval(()=>{},1000)"]
   daemon:
     image: node:24.21.0-bookworm-slim
     command: ["node", "-e", "require('http').createServer((req,res)=>{res.statusCode=req.url==='/v1/sandboxes'&&!req.headers['open-sandbox-api-key']?401:200;res.end('fixture backend')}).listen(8384,'0.0.0.0')"]

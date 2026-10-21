@@ -45,6 +45,7 @@ jobs:
           done
       - name: Validate Compose manifest
         env:
+          ECR_REGISTRY: example.invalid
           OPSRABBIT_DAEMON_IMAGE: example.invalid/opsrabbit-daemon:test
           OPSRABBIT_WEB_IMAGE: example.invalid/opsrabbit-web:test
           OPSRABBIT_POSTGRES_PASSWORD: test

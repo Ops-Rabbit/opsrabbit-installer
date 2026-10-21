@@ -78,6 +78,7 @@ case "$*" in
     [[ "$(stat -c %a "$DOCKER_CONFIG")" == 700 ]]
     printf '%s\\n' "$DOCKER_CONFIG" > /opt/opsrabbit/.last-docker-config
     ;;
+  *'config --format json') echo '{"services":{"opensandbox-server":{"image":"customer.invalid/lifecycle:v2.3.4"}}}' ;;
   *' ps -q opensandbox-server') echo fixture-sandbox ;;
   'inspect '*) echo connected ;;
 esac
@@ -145,7 +146,7 @@ esac
     shutil.copyfile(docker, fixture_bin / 'docker')
     (fixture_bin / 'docker').chmod(0o755)
     run('bash', str(repo / 'tests/release-fixture.sh'), str(fixture), str(fixture_bin))
-    docker.write_text(f'#!/bin/bash\nexec {fixture_bin}/docker "$@"\n')
+    docker.write_text(f'#!/bin/bash\nexport TEST_RELEASE_ROOT={fixture}\nexec {fixture_bin}/docker "$@"\n')
     curl.write_text(f'#!/bin/bash\nexport TEST_RELEASE_ROOT={fixture}\nexec {fixture_bin}/curl "$@"\n')
     curl.chmod(0o755)
     aws.unlink()
