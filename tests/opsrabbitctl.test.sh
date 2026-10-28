@@ -46,6 +46,12 @@ if [[ "${1:-}" == "login" ]]; then
   exit 0
 fi
 printf '%s|%s|%s\n' "${PWD}" "${DOCKER_CONFIG:-}" "$*" >> "${OPSRABBIT_TEST_COMMAND_LOG}"
+if [[ "$*" == *'exec -T daemon node /opt/opsrabbit/apps/backend/dist/scripts/initialize-opensandbox.js' ]]; then
+  cat > "${OPSRABBIT_TEST_COMMAND_LOG}.stdin"
+  jq -e '.endpoint == "http://opensandbox-server:8080" and .apiKey == "test-open-sandbox-key" and .image == "123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:test"' "${OPSRABBIT_TEST_COMMAND_LOG}.stdin" >/dev/null
+  [[ "${OPSRABBIT_TEST_INIT_FAIL:-}" != true ]] || exit 1
+  echo 'Sandbox configuration ready; execution remains disabled.'
+fi
 if [[ "$*" == *"compose "*" ps -q opensandbox-server" ]]; then
   echo "opensandbox-test-container"
 fi
@@ -108,6 +114,24 @@ while IFS='|' read -r command_pwd docker_config command_args; do
   [[ ! -e "${docker_config}" ]]
   [[ "${command_args}" == manifest* || "${command_args}" == compose* || "${command_args}" == pull* || "${command_args}" == inspect* || "${command_args}" == network* ]]
 done < "${command_log}"
+
+# Routine deploy/update does not overwrite application sandbox settings. The
+# explicit bootstrap command transports its credential through stdin only.
+if grep -Fq initialize-opensandbox.js "${command_log}"; then
+  echo "Routine deployment unexpectedly initialized sandbox settings." >&2; exit 1
+fi
+: > "${command_log}"
+initialization_output="$(PATH="${stub_bin}:${PATH}" OPSRABBIT_DEPLOY_DIR="${deploy_dir}" \
+  OPSRABBIT_TEST_COMMAND_LOG="${command_log}" "${repo_root}/bundle/opsrabbitctl" sandbox initialize)"
+grep -Fq 'execution remains disabled' <<<"${initialization_output}"
+if grep -Fq test-open-sandbox-key "${command_log}" || grep -Fq test-open-sandbox-key <<<"${initialization_output}"; then
+  echo "Initialization exposed its credential." >&2; exit 1
+fi
+if PATH="${stub_bin}:${PATH}" OPSRABBIT_DEPLOY_DIR="${deploy_dir}" OPSRABBIT_TEST_COMMAND_LOG="${command_log}" \
+  OPSRABBIT_TEST_INIT_FAIL=true "${repo_root}/bundle/opsrabbitctl" sandbox initialize >"${test_root}/initialization-failure.log" 2>&1; then
+  echo "Initialization failure was ignored." >&2; exit 1
+fi
+grep -Fq 'Could not initialize OpenSandbox settings' "${test_root}/initialization-failure.log"
 
 : > "${command_log}"
 health_output="$(

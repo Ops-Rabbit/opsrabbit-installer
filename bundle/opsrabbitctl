@@ -48,7 +48,7 @@ cd "${deploy_dir}"
 
 release_dir="${deploy_dir}/.release"
 case "${1:-}" in
-  deploy|update|start|stop|restart|auth|login|https)
+  deploy|update|start|stop|restart|auth|login|https|sandbox)
     command -v flock >/dev/null || { echo "Install util-linux before changing services or authentication." >&2; exit 1; }
     install -d -m 0700 "${release_dir}"
     exec {release_lock}>"${release_dir}/lock"
@@ -437,6 +437,17 @@ https_reload() {
 }
 
 case "${1:-}" in
+  sandbox)
+    [[ "$#" -eq 2 && "${2:-}" == initialize ]] || { fail "Usage: opsrabbitctl sandbox initialize"; exit 2; }
+    [[ ! -f "${release_dir}/pending.json" ]] || { fail "Resume the pending release before initializing sandbox settings."; exit 1; }
+    # The key never enters argv or a temporary file. The backend stores it through
+    # its encrypted system-secret service and preserves any existing settings.
+    printf '%s' "${opensandbox_api_key}" \
+      | jq -Rs --arg endpoint 'http://opensandbox-server:8080' --arg image "${sandbox_image}" \
+          '{endpoint: $endpoint, apiKey: ., image: $image}' \
+      | "${compose[@]}" exec -T daemon node /opt/opsrabbit/apps/backend/dist/scripts/initialize-opensandbox.js \
+      || { fail "Could not initialize OpenSandbox settings. Use a backend release supporting sandbox initialization and check daemon/database health."; exit 1; }
+    ;;
   https)
     case "${2:-}" in
       configure) https_configure "${@:3}" ;;
@@ -512,7 +523,7 @@ case "${1:-}" in
     echo "OpenSandbox health, authentication, and sandbox image checks passed."
     ;;
   *)
-    echo "Usage: opsrabbitctl {update|deploy [--adopt]} [--version vX.Y.Z] [--ecr-password-stdin] {--backup-confirmed|--skip-backup} | {auth {configure|login|status}|login|start|stop|restart|status|logs [service]|health|https configure|https reload}" >&2
+    echo "Usage: opsrabbitctl {update|deploy [--adopt]} [--version vX.Y.Z] [--ecr-password-stdin] {--backup-confirmed|--skip-backup} | {auth {configure|login|status}|sandbox initialize|login|start|stop|restart|status|logs [service]|health|https configure|https reload}" >&2
     exit 2
     ;;
 esac
