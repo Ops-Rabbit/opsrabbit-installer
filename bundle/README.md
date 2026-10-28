@@ -116,7 +116,11 @@ Persistent data is held in Docker named volumes. Back up PostgreSQL, the OpsRabb
 
 ## Enable sandbox execution
 
-The installer starts OpenSandbox but does not silently enable command sandboxing in the application. In **Configuration → Sandbox**, select the OpenSandbox provider and use:
+The installer starts OpenSandbox and initializes its application connection settings only when no sandbox configuration has been saved. New installations select the OpenSandbox provider, save the endpoint and encrypted API key, and use the installed sandbox image with workspace-only policy and session scope. **Execution remains disabled with mode Off** until an administrator enables it in **Configuration → Sandbox** and selects an execution mode.
+
+The endpoint and API key remain editable in the UI. Reinstallation preserves any existing application configuration, including custom endpoints, keys and enabled state; routine upgrades do not initialize these settings. Initialization requires a backend release containing the initialization command. For an already running, unconfigured installation, run `sudo opsrabbitctl sandbox initialize`. This also preserves any saved configuration. After a UI reset, an explicit initialization can populate the reset settings again.
+
+For manual configuration, use:
 
 - endpoint: `http://opensandbox-server:8080`
 - image: the `OPSRABBIT_SANDBOX_IMAGE` value from `/opt/opsrabbit/.env`

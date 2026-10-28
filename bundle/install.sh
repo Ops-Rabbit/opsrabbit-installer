@@ -239,12 +239,14 @@ echo "[Installer 4/4] Configure AWS authentication, verify image access, and sta
 # used for every later login, deploy and update. Never auto-select a host identity.
 OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl auth configure
 OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl deploy --adopt --backup-confirmed
+OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl sandbox initialize
 OPSRABBIT_DEPLOY_DIR="${deploy_dir}" /usr/local/bin/opsrabbitctl health
 sandbox_image="$(read_existing_env OPSRABBIT_SANDBOX_IMAGE)"
 
 echo
 echo "OpsRabbit is running at ${public_origin}"
-echo "OpenSandbox endpoint for Configuration -> Sandbox: http://opensandbox-server:8080"
+echo "OpenSandbox connection settings were initialized if unconfigured; existing settings were preserved."
+echo "Sandbox execution is disabled on new installations. Enable it explicitly in Configuration -> Sandbox."
 echo "Sandbox image: ${sandbox_image}"
 echo "The OpenSandbox API key is stored in ${env_path} and was not printed."
 echo "Routine commands: opsrabbitctl status | logs | health | update"
