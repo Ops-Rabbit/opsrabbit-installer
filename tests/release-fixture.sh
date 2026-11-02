@@ -4,6 +4,11 @@ set -euo pipefail
 fixture_root="$1"
 fixture_bin="$2"
 fixture_registry=123456789012.dkr.ecr.us-east-1.amazonaws.com
+cat > "$fixture_bin/uname" <<'UNAME'
+#!/usr/bin/env bash
+printf '%s\n' "${TEST_MACHINE_ARCH:-x86_64}"
+UNAME
+chmod +x "$fixture_bin/uname"
 fixture_revision=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 jq -n --arg registry "$fixture_registry" --arg revision "$fixture_revision" \
   '{schema_version:1,protocol:1,version:"v1.1.1",revision:$revision,platform:"linux/amd64",images:{backend:($registry+"/vg-backend:v1.1.1"),frontend:($registry+"/vg-webapp:v1.1.1"),sandbox:($registry+"/vg-sandbox:v1.0.0")}}' > "$fixture_root/release.json"

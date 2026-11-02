@@ -9,7 +9,7 @@ image_id() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 case "$*" in
   'login '*) cat >/dev/null; exit 0 ;;
   'manifest inspect '*) exit 0 ;;
-  'pull '*) [[ "${TEST_FAILURE:-}" != pull ]] || exit 1; printf '%s\n' "${*: -1}" >> "$TEST_RELEASE_ROOT/pulled-images"; exit 0 ;;
+  'pull '*) printf '%s %s\n' "$3" "${*: -1}" >> "$TEST_RELEASE_ROOT/pull-platforms"; [[ "${TEST_FAILURE:-}" != pull ]] || exit 1; printf '%s\n' "${*: -1}" >> "$TEST_RELEASE_ROOT/pulled-images"; exit 0 ;;
   'inspect --format {{.State.Running}} fixture-worker') jq -er '.worker != null' "$state"; exit 0 ;;
   'inspect --format {{.Image}} fixture-'*) service="${*: -1}"; image="$(jq -er --arg service "${service#fixture-}" '.[$service]' "$state")"; image_id "$image"; exit 0 ;;
   'image inspect --format {{.Id}} '*) image_id "${*: -1}"; exit 0 ;;
