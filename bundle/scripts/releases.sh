@@ -4,10 +4,26 @@ release_catalog_url="https://opsrabbit-releases-921870554228-us-east-1.s3.us-eas
 release_dir="${deploy_dir}/.release"
 release_candidate=""
 
+release_host_platform() {
+  local machine_arch
+  machine_arch="$(uname -m)" || return 1
+  case "${machine_arch}" in
+    x86_64|amd64) printf '%s\n' linux/amd64 ;;
+    aarch64|arm64) printf '%s\n' linux/arm64 ;;
+    *) echo "Unsupported host architecture: ${machine_arch}. OpsRabbit requires x86-64 or ARM64 (including AWS Graviton)." >&2; return 1 ;;
+  esac
+}
+
 release_validate() {
-  jq -e --arg registry "${ecr_registry}" '
+  local host_platform
+  host_platform="$(release_host_platform)" || return 1
+  jq -e --arg host_platform "${host_platform}" --arg registry "${ecr_registry}" '
     def pin($repo): type == "string" and startswith($registry + "/" + $repo + ":") and (ltrimstr($registry + "/" + $repo + ":") | test("^v?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"));
     .schema_version == 1 and .protocol == 1 and .platform == "linux/amd64"
+    and (if has("platforms") then
+      (.platforms | type == "array" and sort == ["linux/amd64", "linux/arm64"])
+      and (.platforms | index($host_platform) != null)
+      else $host_platform == "linux/amd64" end)
     and (.version | type == "string" and test("^v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))
     and (.revision | type == "string" and test("^[a-f0-9]{40}$"))
     and (.images.backend | pin("vg-backend")) and (.images.frontend | pin("vg-webapp"))
@@ -81,8 +97,20 @@ release_update_env() {
   mv -- "${temporary_env}" "${env_file}"
 }
 
+release_pull_native() {
+  local host_platform="$1" image="$2" actual_platform
+  docker pull --platform "${host_platform}" "${image}" || return 1
+  # Docker's classic image store can warn rather than fail for a single-image
+  # platform mismatch. Inspect the pulled configuration before maintenance.
+  actual_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "${image}")" || return 1
+  if [[ "${actual_platform}" != "${host_platform}" ]]; then
+    echo "Image ${image} has platform ${actual_platform}; this host requires ${host_platform}." >&2
+    return 1
+  fi
+}
+
 release_deploy() {
-  local requested="" adopt=false backup=false skip_backup=false ecr_password_stdin=false option override worker_running=false worker_defined=false pending_file worker_id image
+  local requested="" adopt=false backup=false skip_backup=false ecr_password_stdin=false option override worker_running=false worker_defined=false pending_file worker_id image host_platform lifecycle_image
   while [[ "$#" -gt 0 ]]; do
     option="$1"; shift
     case "${option}" in
@@ -94,6 +122,7 @@ release_deploy() {
       *) echo "Unknown release option: ${option}" >&2; return 1 ;;
     esac
   done
+  host_platform="$(release_host_platform)" || return 1
   command -v jq >/dev/null || { echo "Install jq before upgrading." >&2; return 1; }
   if [[ ! -f "${release_dir}/current.json" && "${adopt}" != true ]]; then
     echo "Legacy deployment: use migrate.sh, or deploy --adopt --backup-confirmed after reviewing the upgrade requirements." >&2; return 1
@@ -111,11 +140,15 @@ release_deploy() {
   if [[ -f "${release_dir}/pending.json" && "$(jq -r .version "${release_dir}/pending.json")" != "$(jq -r .version "${release_candidate}")" ]]; then
     echo "An interrupted release is pending. Resume that exact version before selecting another release." >&2; return 1
   fi
-  while IFS= read -r image; do docker pull --platform linux/amd64 "${image}" || return 1; done < <(jq -r '.images | .backend,.frontend,.sandbox' "${release_candidate}")
+  while IFS= read -r image; do release_pull_native "${host_platform}" "${image}" || return 1; done < <(jq -r '.images | .backend,.frontend,.sandbox' "${release_candidate}")
   # A custom workload is preserved rather than replaced by the release default.
   if [[ "${sandbox_image}" != "$(jq -r .images.sandbox "${release_candidate}")" ]] && ! release_manages_sandbox "${sandbox_image}"; then
-    docker pull --platform linux/amd64 "${sandbox_image}" || return 1
+    release_pull_native "${host_platform}" "${sandbox_image}" || return 1
   fi
+  # A digest-pinned lifecycle server must also support the native host.
+  # Fail before maintenance rather than starting an emulated/incompatible server.
+  lifecycle_image="$(opensandbox_image)" || return 1
+  release_pull_native "${host_platform}" "${lifecycle_image}" || return 1
   if [[ -f "${release_dir}/pending.json" ]]; then worker_running="$(jq -r '._deployment.worker_was_running // false' "${release_dir}/pending.json")"; fi
   if docker compose --env-file "${env_file}" -f "${compose_file}" --profile '*' config --services | grep -Fxq worker; then
     worker_defined=true

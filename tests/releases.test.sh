@@ -14,6 +14,17 @@ ecr_registry=123456789012.dkr.ecr.us-east-1.amazonaws.com
 # selection run unchanged. Only the external catalog transport is replaced.
 source "${repo_root}/bundle/scripts/releases.sh"
 release_validate "${test_root}/release.json"
+# Legacy releases must never be pulled under ARM emulation.
+if TEST_MACHINE_ARCH=aarch64 release_validate "${test_root}/release.json"; then echo 'Accepted amd64-only release on Graviton'; exit 1; fi
+jq '.platforms=["linux/amd64","linux/arm64"]' "${test_root}/release.json" > "${test_root}/multiarch.json"
+for arch in x86_64 amd64 aarch64 arm64; do
+  TEST_MACHINE_ARCH="$arch" release_validate "${test_root}/multiarch.json"
+done
+if TEST_MACHINE_ARCH=armv7l release_validate "${test_root}/multiarch.json"; then echo 'Accepted 32-bit ARM'; exit 1; fi
+for platforms in 'null' '[]' '["linux/arm64"]' '["linux/amd64","linux/amd64"]' '["linux/amd64","linux/arm/v7"]' '"linux/arm64"'; do
+  jq --argjson platforms "$platforms" '.platforms=$platforms' "${test_root}/multiarch.json" > "${test_root}/bad.json"
+  if release_validate "${test_root}/bad.json"; then echo 'Accepted malformed platform metadata'; exit 1; fi
+done
 for image_key in backend frontend sandbox; do
   jq --arg key "${image_key}" '.images[$key] = "123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-backend:latest"' "${test_root}/release.json" > "${test_root}/bad.json"
   if release_validate "${test_root}/bad.json"; then echo "Accepted floating ${image_key}" >&2; exit 1; fi

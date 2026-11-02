@@ -32,7 +32,7 @@ ctl="$repo_root/bundle/opsrabbitctl"
 # A declined backup confirmation on an existing install must precede host setup.
 cat > "$test_root/bin/uname" <<'UNAME'
 #!/bin/sh
-echo x86_64
+echo "${TEST_MACHINE_ARCH:-x86_64}"
 UNAME
 cat > "$test_root/bin/apt-get" <<'APT'
 #!/bin/sh
@@ -110,6 +110,32 @@ jq '.["opensandbox-server"]="customer.invalid/lifecycle:old"' "$test_root/contai
 mv "$test_root/containers.next" "$test_root/containers.json"
 if OPSRABBIT_TEST_API_KEY=fixture-secret "$ctl" health > "$test_root/output" 2>&1; then echo 'Health accepted stale lifecycle image'; exit 1; fi
 grep -q 'opensandbox-server is not running the configured image' "$test_root/output"
+# Architecture selection must reach Docker unchanged, including custom sandboxes.
+cp "$test_root/lifecycle.log" "$test_root/lifecycle-before"
+cp "$OPSRABBIT_DEPLOY_DIR/.env" "$test_root/env-before"
+cp "$test_root/pulled-images" "$test_root/pulled-before"
+if TEST_MACHINE_ARCH=aarch64 "$ctl" update --skip-backup > "$test_root/output" 2>&1; then echo 'Installed legacy amd64 release on ARM64'; exit 1; fi
+cmp "$test_root/lifecycle-before" "$test_root/lifecycle.log"
+cmp "$test_root/env-before" "$OPSRABBIT_DEPLOY_DIR/.env"
+cmp "$test_root/pulled-before" "$test_root/pulled-images"
+jq '.platforms=["linux/amd64","linux/arm64"]' "$test_root/release.json" > "$test_root/release.next"
+mv "$test_root/release.next" "$test_root/release.json"
+# Docker may report a successful pull for a non-native single-image manifest.
+# Reject mismatched release, custom sandbox and lifecycle metadata before maintenance.
+for failure in platform custom-platform provider-platform; do
+  if TEST_MACHINE_ARCH=aarch64 TEST_FAILURE="$failure" "$ctl" update --skip-backup > "$test_root/output" 2>&1; then echo "Accepted incompatible $failure"; exit 1; fi
+  grep -q 'has platform linux/s390x; this host requires linux/arm64' "$test_root/output"
+  cmp "$test_root/lifecycle-before" "$test_root/lifecycle.log"
+  cmp "$test_root/env-before" "$OPSRABBIT_DEPLOY_DIR/.env"
+done
+for arch in aarch64 arm64; do
+  : > "$test_root/pull-platforms"
+  TEST_MACHINE_ARCH="$arch" "$ctl" update --skip-backup > "$test_root/output" 2>&1
+  [[ "$(wc -l < "$test_root/pull-platforms")" -eq 5 ]]
+  if grep -v '^linux/arm64 ' "$test_root/pull-platforms"; then echo 'Used emulation instead of native ARM64'; exit 1; fi
+  grep -Fxq 'linux/arm64 customer.invalid/lifecycle:v2.3.4' "$test_root/pull-platforms"
+  grep -Fxq 'linux/arm64 customer.invalid/workload:v2.3.4' "$test_root/pull-platforms"
+done
 # Exercise the real root migration entrypoint in this disposable Linux container.
 printf '#!/bin/sh\nexit 88\n' > /usr/local/bin/opsrabbitctl
 cp "$OPSRABBIT_DEPLOY_DIR/docker-compose.yml" "$test_root/compose-before"

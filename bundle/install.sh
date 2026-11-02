@@ -107,9 +107,9 @@ echo "[Installer 1/4] Reviewing deployment settings..."
 
 machine_arch="$(uname -m)"
 case "${machine_arch}" in
-  x86_64|amd64) ;;
+  x86_64|amd64|aarch64|arm64) ;;
   *)
-    echo "OpsRabbit release images currently require an x86-64 host; found ${machine_arch}." >&2
+    echo "OpsRabbit requires an x86-64 or ARM64 host (including AWS Graviton); found ${machine_arch}." >&2
     exit 1
     ;;
 esac

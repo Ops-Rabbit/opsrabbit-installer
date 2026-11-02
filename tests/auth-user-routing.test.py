@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run only as root in a disposable container: exercises real sudo/runuser/TTY."""
+import json
 import os
 import pathlib
 import pty
@@ -146,6 +147,13 @@ esac
     shutil.copyfile(docker, fixture_bin / 'docker')
     (fixture_bin / 'docker').chmod(0o755)
     run('bash', str(repo / 'tests/release-fixture.sh'), str(fixture), str(fixture_bin))
+    # Authentication routing runs on the container's real native architecture.
+    # Its release must support ARM64 as well as amd64; legacy incompatibility
+    # is covered independently by the release/lifecycle fixtures.
+    release = fixture / 'release.json'
+    manifest = json.loads(release.read_text())
+    manifest['platforms'] = ['linux/amd64', 'linux/arm64']
+    release.write_text(json.dumps(manifest))
     docker.write_text(f'#!/bin/bash\nexport TEST_RELEASE_ROOT={fixture}\nexec {fixture_bin}/docker "$@"\n')
     curl.write_text(f'#!/bin/bash\nexport TEST_RELEASE_ROOT={fixture}\nexec {fixture_bin}/curl "$@"\n')
     curl.chmod(0o755)

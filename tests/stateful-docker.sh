@@ -9,9 +9,17 @@ image_id() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 case "$*" in
   'login '*) cat >/dev/null; exit 0 ;;
   'manifest inspect '*) exit 0 ;;
-  'pull '*) [[ "${TEST_FAILURE:-}" != pull ]] || exit 1; printf '%s\n' "${*: -1}" >> "$TEST_RELEASE_ROOT/pulled-images"; exit 0 ;;
+  'pull '*) [[ "${TEST_FAILURE:-}" != pull ]] || exit 1; printf '%s %s\n' "$3" "${*: -1}" >> "$TEST_RELEASE_ROOT/pull-platforms"; printf '%s\n' "${*: -1}" >> "$TEST_RELEASE_ROOT/pulled-images"; exit 0 ;;
   'inspect --format {{.State.Running}} fixture-worker') jq -er '.worker != null' "$state"; exit 0 ;;
   'inspect --format {{.Image}} fixture-'*) service="${*: -1}"; image="$(jq -er --arg service "${service#fixture-}" '.[$service]' "$state")"; image_id "$image"; exit 0 ;;
+  'image inspect --format {{.Os}}/{{.Architecture}} '* )
+    image="${*: -1}"
+    if [[ "${TEST_FAILURE:-}" == platform || ( "${TEST_FAILURE:-}" == provider-platform && "$image" == "$(jq -r '.services["opensandbox-server"].image' "$TEST_RELEASE_ROOT/compose.json")" ) || ( "${TEST_FAILURE:-}" == custom-platform && "$image" == customer.invalid/workload:v2.3.4 ) ]]; then
+      echo linux/s390x
+    else
+      case "$(uname -m)" in x86_64|amd64) echo linux/amd64 ;; aarch64|arm64) echo linux/arm64 ;; esac
+    fi
+    exit 0 ;;
   'image inspect --format {{.Id}} '*) image_id "${*: -1}"; exit 0 ;;
   'image inspect --format {{index .Config.Labels "org.opencontainers.image.version"}} '*) [[ "${TEST_FAILURE:-}" == metadata ]] && echo v0.0.0 || echo v1.1.1; exit 0 ;;
   'image inspect --format {{index .Config.Labels "org.opencontainers.image.revision"}} '*) echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; exit 0 ;;
