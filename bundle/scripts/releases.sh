@@ -97,8 +97,20 @@ release_update_env() {
   mv -- "${temporary_env}" "${env_file}"
 }
 
+release_pull_native() {
+  local host_platform="$1" image="$2" actual_platform
+  docker pull --platform "${host_platform}" "${image}" || return 1
+  # Docker's classic image store can warn rather than fail for a single-image
+  # platform mismatch. Inspect the pulled configuration before maintenance.
+  actual_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "${image}")" || return 1
+  if [[ "${actual_platform}" != "${host_platform}" ]]; then
+    echo "Image ${image} has platform ${actual_platform}; this host requires ${host_platform}." >&2
+    return 1
+  fi
+}
+
 release_deploy() {
-  local requested="" adopt=false backup=false skip_backup=false ecr_password_stdin=false option override worker_running=false worker_defined=false pending_file worker_id image host_platform
+  local requested="" adopt=false backup=false skip_backup=false ecr_password_stdin=false option override worker_running=false worker_defined=false pending_file worker_id image host_platform lifecycle_image
   while [[ "$#" -gt 0 ]]; do
     option="$1"; shift
     case "${option}" in
@@ -128,11 +140,15 @@ release_deploy() {
   if [[ -f "${release_dir}/pending.json" && "$(jq -r .version "${release_dir}/pending.json")" != "$(jq -r .version "${release_candidate}")" ]]; then
     echo "An interrupted release is pending. Resume that exact version before selecting another release." >&2; return 1
   fi
-  while IFS= read -r image; do docker pull --platform "${host_platform}" "${image}" || return 1; done < <(jq -r '.images | .backend,.frontend,.sandbox' "${release_candidate}")
+  while IFS= read -r image; do release_pull_native "${host_platform}" "${image}" || return 1; done < <(jq -r '.images | .backend,.frontend,.sandbox' "${release_candidate}")
   # A custom workload is preserved rather than replaced by the release default.
   if [[ "${sandbox_image}" != "$(jq -r .images.sandbox "${release_candidate}")" ]] && ! release_manages_sandbox "${sandbox_image}"; then
-    docker pull --platform "${host_platform}" "${sandbox_image}" || return 1
+    release_pull_native "${host_platform}" "${sandbox_image}" || return 1
   fi
+  # A digest-pinned lifecycle server must also support the native host.
+  # Fail before maintenance rather than starting an emulated/incompatible server.
+  lifecycle_image="$(opensandbox_image)" || return 1
+  release_pull_native "${host_platform}" "${lifecycle_image}" || return 1
   if [[ -f "${release_dir}/pending.json" ]]; then worker_running="$(jq -r '._deployment.worker_was_running // false' "${release_dir}/pending.json")"; fi
   if docker compose --env-file "${env_file}" -f "${compose_file}" --profile '*' config --services | grep -Fxq worker; then
     worker_defined=true

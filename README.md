@@ -16,7 +16,7 @@ To install another version, replace `v1.5.0` in the URL with the required releas
 
 ## Requirements
 
-The installer recognizes x86-64 and 64-bit ARM hosts, including AWS Graviton. Release manifests must advertise the host platform; older releases without a platform list are amd64-only and are rejected on ARM64 before application services change. 32-bit ARM is unsupported. ARM64 rollout remains blocked until the pinned patched OpenSandbox server is replaced with a published, verified multi-platform digest; this branch retains the existing pin until that artifact exists.
+The installer recognizes x86-64 and 64-bit ARM hosts, including AWS Graviton. Release manifests must advertise the host platform; older releases without a platform list are amd64-only and are rejected on ARM64 before application services change. After each product, custom sandbox and lifecycle-server pull, the helper inspects the actual image OS/architecture before maintenance; a Docker platform warning cannot permit emulation. 32-bit ARM is unsupported. ARM64 rollout remains blocked until the pinned patched OpenSandbox server is replaced with a published, verified multi-platform digest; this branch retains the existing pin until that artifact exists.
 
 - Ubuntu Server 24.04 LTS or 26.04 LTS, or Debian 13
 - x86-64 or ARM64 CPU architecture (ARM64 rollout requires the multi-platform server pin described above)

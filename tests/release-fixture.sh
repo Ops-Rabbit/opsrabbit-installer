@@ -42,6 +42,9 @@ case "$*" in
   *'config --services') printf 'postgres\ndaemon\nweb\nopensandbox-server\n'; exit 0 ;;
   *' ps -q daemon'|*' ps -q web') echo fixture-container; exit 0 ;;
   'inspect --format {{.Image}} '*|'image inspect --format {{.Id}} '*) echo sha256:fixture-image-id; exit 0 ;;
+  'image inspect --format {{.Os}}/{{.Architecture}} '* )
+    case "$(uname -m)" in x86_64|amd64) echo linux/amd64 ;; aarch64|arm64) echo linux/arm64 ;; esac
+    exit 0 ;;
   'image inspect --format {{index .Config.Labels "org.opencontainers.image.version"}} '*) echo v1.1.1; exit 0 ;;
   'image inspect --format {{index .Config.Labels "org.opencontainers.image.revision"}} '*) echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa; exit 0 ;;
 esac

@@ -120,11 +120,20 @@ cmp "$test_root/env-before" "$OPSRABBIT_DEPLOY_DIR/.env"
 cmp "$test_root/pulled-before" "$test_root/pulled-images"
 jq '.platforms=["linux/amd64","linux/arm64"]' "$test_root/release.json" > "$test_root/release.next"
 mv "$test_root/release.next" "$test_root/release.json"
+# Docker may report a successful pull for a non-native single-image manifest.
+# Reject mismatched release, custom sandbox and lifecycle metadata before maintenance.
+for failure in platform custom-platform provider-platform; do
+  if TEST_MACHINE_ARCH=aarch64 TEST_FAILURE="$failure" "$ctl" update --skip-backup > "$test_root/output" 2>&1; then echo "Accepted incompatible $failure"; exit 1; fi
+  grep -q 'has platform linux/s390x; this host requires linux/arm64' "$test_root/output"
+  cmp "$test_root/lifecycle-before" "$test_root/lifecycle.log"
+  cmp "$test_root/env-before" "$OPSRABBIT_DEPLOY_DIR/.env"
+done
 for arch in aarch64 arm64; do
   : > "$test_root/pull-platforms"
   TEST_MACHINE_ARCH="$arch" "$ctl" update --skip-backup > "$test_root/output" 2>&1
-  [[ "$(wc -l < "$test_root/pull-platforms")" -eq 4 ]]
+  [[ "$(wc -l < "$test_root/pull-platforms")" -eq 5 ]]
   if grep -v '^linux/arm64 ' "$test_root/pull-platforms"; then echo 'Used emulation instead of native ARM64'; exit 1; fi
+  grep -Fxq 'linux/arm64 customer.invalid/lifecycle:v2.3.4' "$test_root/pull-platforms"
   grep -Fxq 'linux/arm64 customer.invalid/workload:v2.3.4' "$test_root/pull-platforms"
 done
 # Exercise the real root migration entrypoint in this disposable Linux container.
