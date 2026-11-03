@@ -70,3 +70,19 @@ jobs:
           grep -Fx './scripts/install-opensandbox-apparmor.sh' archive-contents.txt
           grep -Fx './deploy/apparmor/opsrabbit-opensandbox-bwrap' archive-contents.txt
           grep -Fx './deploy/apparmor/opsrabbit-opensandbox-browser' archive-contents.txt
+
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
+        with:
+          terraform_version: 1.9.8
+          terraform_wrapper: false
+      - name: Validate public webhook reference without AWS access
+        working-directory: terraform/public-webhooks
+        run: |
+          terraform fmt -recursive -check
+          terraform init -backend=false -input=false -lockfile=readonly
+          terraform validate
+          terraform test

@@ -1,0 +1,19 @@
+aws_region         = "us-east-1"
+vpc_id             = "vpc-REPLACE"
+public_subnet_ids  = ["subnet-REPLACE-A", "subnet-REPLACE-B"]
+instance_id        = "i-REPLACE"
+certificate_arn    = "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE"
+opsrabbit_hostname = "hooks.example.com"
+
+access_log_bucket = "replace-with-your-alb-log-bucket"
+
+# Optional: create DNS in an existing public Route 53 zone.
+# route53_zone_id = "ZREPLACE"
+
+# Defaults shown below. No webhook token values belong in Terraform.
+# target_port          = 3000
+# webhook_header_name  = "X-OpsRabbit-Webhook-Token"
+# allowed_webhook_cidrs = ["0.0.0.0/0"]
+
+# Example restriction: replace with your webhook sender's real IPv4 ranges.
+# allowed_webhook_cidrs = ["192.0.2.0/24", "198.51.100.10/32"]
