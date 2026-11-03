@@ -82,10 +82,11 @@ variable "allowed_webhook_cidrs" {
 }
 
 variable "access_log_bucket" {
-  description = "Existing same-region S3 bucket prepared for ALB log delivery (SSE-S3, private access, and customer-managed retention)."
+  default     = null
+  description = "Optional existing same-region S3 bucket for ALB access logs; null disables logging."
   type        = string
   validation {
-    condition     = length(var.access_log_bucket) >= 3 && length(var.access_log_bucket) <= 63 && can(regex("^[a-z0-9][a-z0-9.-]*[a-z0-9]$", var.access_log_bucket))
+    condition     = var.access_log_bucket == null ? true : length(var.access_log_bucket) >= 3 && length(var.access_log_bucket) <= 63 && can(regex("^[a-z0-9][a-z0-9.-]*[a-z0-9]$", var.access_log_bucket))
     error_message = "Provide the existing access-log bucket name, not an ARN or s3:// URL."
   }
 }

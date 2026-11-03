@@ -5,7 +5,8 @@ instance_id        = "i-REPLACE"
 certificate_arn    = "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE"
 opsrabbit_hostname = "hooks.example.com"
 
-access_log_bucket = "replace-with-your-alb-log-bucket"
+# Optional: enable ALB access logging.
+# access_log_bucket = "your-alb-log-bucket"
 
 # Optional: create DNS in an existing public Route 53 zone.
 # route53_zone_id = "ZREPLACE"

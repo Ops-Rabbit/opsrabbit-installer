@@ -31,7 +31,6 @@ variables {
   instance_id        = "i-test"
   certificate_arn    = "arn:aws:acm:us-east-1:123456789012:certificate/test"
   opsrabbit_hostname = "hooks.example.com"
-  access_log_bucket  = "fixture-alb-logs"
 }
 
 run "restricted_ingress" {
@@ -116,15 +115,15 @@ run "custom_header_name" {
 run "custom_web_port" {
   command = plan
   variables {
-    target_port = 18384
+    target_port = 13000
   }
   assert {
-    condition = (aws_lb_target_group.webhooks.port == 18384 &&
-      aws_lb_target_group_attachment.opsrabbit.port == 18384 &&
-      aws_vpc_security_group_ingress_rule.target.from_port == 18384 &&
-      aws_vpc_security_group_ingress_rule.target.to_port == 18384 &&
-      aws_vpc_security_group_egress_rule.target.from_port == 18384 &&
-    aws_vpc_security_group_egress_rule.target.to_port == 18384)
+    condition = (aws_lb_target_group.webhooks.port == 13000 &&
+      aws_lb_target_group_attachment.opsrabbit.port == 13000 &&
+      aws_vpc_security_group_ingress_rule.target.from_port == 13000 &&
+      aws_vpc_security_group_ingress_rule.target.to_port == 13000 &&
+      aws_vpc_security_group_egress_rule.target.from_port == 13000 &&
+    aws_vpc_security_group_egress_rule.target.to_port == 13000)
     error_message = "Custom host port must be used consistently for forwarding and security groups."
   }
 }
@@ -138,10 +137,7 @@ run "reject_before_future_ui_rule" {
     one(one(aws_lb_listener_rule.reject_webhooks.condition).path_pattern).values == toset(["/webhooks", "/webhooks/*"]))
     error_message = "Reject unqualified webhook requests before any future UI rules at priority 300 or later."
   }
-  assert {
-    condition     = one(aws_lb.webhooks.access_logs).enabled && one(aws_lb.webhooks.access_logs).bucket == "fixture-alb-logs"
-    error_message = "Access logging must use the configured customer bucket."
-  }
+
 }
 
 run "reject_trailing_hyphen_name" {
@@ -158,4 +154,23 @@ run "reject_reserved_name_prefix" {
     name = "internal-hooks"
   }
   expect_failures = [var.name]
+}
+
+run "logging_disabled_by_default" {
+  command = plan
+  assert {
+    condition     = length(aws_lb.webhooks.access_logs) == 0
+    error_message = "Access logging must be omitted when no bucket is supplied."
+  }
+}
+
+run "optional_access_logs" {
+  command = plan
+  variables {
+    access_log_bucket = "fixture-alb-logs"
+  }
+  assert {
+    condition     = one(aws_lb.webhooks.access_logs).enabled && one(aws_lb.webhooks.access_logs).bucket == "fixture-alb-logs"
+    error_message = "Supplying a bucket must enable log delivery to that bucket."
+  }
 }

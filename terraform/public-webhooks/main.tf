@@ -64,10 +64,13 @@ resource "aws_lb" "webhooks" {
   preserve_host_header       = true
   idle_timeout               = 60
 
-  access_logs {
-    enabled = true
-    bucket  = var.access_log_bucket
-    prefix  = var.name
+  dynamic "access_logs" {
+    for_each = var.access_log_bucket == null ? [] : [var.access_log_bucket]
+    content {
+      enabled = true
+      bucket  = access_logs.value
+      prefix  = var.name
+    }
   }
 
   lifecycle {
