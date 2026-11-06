@@ -2,7 +2,7 @@
 set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 test_root="$(mktemp -d)"
-trap 'rm -rf "$test_root"' EXIT
+trap 'result=$?; if [[ $result != 0 && -f "$test_root/output" ]]; then cat "$test_root/output" >&2; fi; rm -rf "$test_root"' EXIT
 mkdir -p "$test_root/bin" "$test_root/deploy"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$test_root/bin/docker"
 bash "$repo_root/tests/release-fixture.sh" "$test_root" "$test_root/bin"
@@ -136,6 +136,72 @@ for arch in aarch64 arm64; do
   grep -Fxq 'linux/arm64 customer.invalid/lifecycle:v2.3.4' "$test_root/pull-platforms"
   grep -Fxq 'linux/arm64 customer.invalid/workload:v2.3.4' "$test_root/pull-platforms"
 done
+# Cleanup runs through the administrator CLI, preserving container identities,
+# selected sandbox pins and newer/custom/unrelated images across failed pulls.
+registry=123456789012.dkr.ecr.us-east-1.amazonaws.com
+jq '.version="v1.0.9" | .images.backend |= sub("v1.1.1"; "v1.0.9") | .images.frontend |= sub("v1.1.1"; "v1.0.9") | .images.sandbox |= sub("v1.0.0"; "v0.9.0")' "$test_root/release.json" > "$OPSRABBIT_DEPLOY_DIR/.release/current.json"
+sed -i "s|^OPSRABBIT_SANDBOX_IMAGE=.*|OPSRABBIT_SANDBOX_IMAGE=$registry/vg-sandbox:v0.2.0|" "$OPSRABBIT_DEPLOY_DIR/.env"
+jq '.images.sandbox="123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:v0.1.0"' "$test_root/release.json" > "$OPSRABBIT_DEPLOY_DIR/.release/pending.json"
+cat > "$test_root/image-containers.json" <<'CONTAINERS'
+{"running":"sha256:running","stopped":"sha256:stopped"}
+CONTAINERS
+: > "$test_root/images.jsonl"
+add_image() {
+  jq -nc --arg ref "$1" --arg id "$2" '{Repository:($ref|split(":")[0]),Tag:($ref|split(":")[1]),ID:$id,Digest:"<none>"}' >> "$test_root/images.jsonl"
+}
+for spec in 'vg-backend:v0.8.0 backlog' 'vg-webapp:v0.8.0 web-backlog' 'vg-sandbox:v0.8.0 sandbox-backlog' 'vg-backend:v1.0.9 installed-backend' 'vg-webapp:v1.0.9 installed-web' 'vg-sandbox:v0.9.0 installed-sandbox' 'vg-sandbox:v1.0.0 candidate-sandbox' 'vg-sandbox:v0.1.0 pending-sandbox' 'vg-sandbox:v0.2.0 custom-sandbox' 'vg-backend:v0.5.0 running' 'vg-webapp:v0.5.0 stopped' 'vg-backend:v1.10.0 future' 'vg-backend:latest custom-tag' 'vg-backend:20261001-123 legacy-tag' 'vg-backend-other:v0.8.0 unrelated'; do
+  read -r ref id <<< "$spec"
+  add_image "$registry/$ref" "sha256:$id"
+done
+# A second tag for a running image must also survive.
+add_image "$registry/vg-backend:v0.6.0" sha256:running
+add_image "$registry/vg-sandbox:v0.3.0" sha256:custom-sandbox
+add_image "$registry/vg-backend:v0.7.0" sha256:candidate-sandbox
+add_image other.invalid/vg-backend:v0.8.0 sha256:other-registry
+add_image "$registry/vg-sandbox:v1.0.1" sha256:future-sandbox
+for failure in image-list container-list container-inspect; do
+  if TEST_FAILURE="$failure" "$ctl" update --skip-backup > "$test_root/output" 2>&1; then echo "Ignored $failure"; exit 1; fi
+  [[ ! -e "$test_root/removed-images" ]]
+done
+if TEST_FAILURE=image-remove "$ctl" update --skip-backup > "$test_root/output" 2>&1; then echo 'Ignored cleanup failure'; exit 1; fi
+[[ ! -e "$test_root/removed-images" ]]
+if TEST_FAILURE=pull "$ctl" update --skip-backup > "$test_root/output" 2>&1; then echo 'Ignored pull failure'; exit 1; fi
+printf '%s\n' "$registry/vg-backend:v0.8.0" "$registry/vg-sandbox:v0.8.0" "$registry/vg-webapp:v0.8.0" > "$test_root/expected-removed"
+cmp "$test_root/expected-removed" "$test_root/removed-images"
+# A cleanup failure after commit must surface without stopping the healthy pair.
+if TEST_FAILURE=image-remove "$ctl" update --skip-backup > "$test_root/output" 2>&1; then echo 'Ignored post-upgrade cleanup failure'; exit 1; fi
+jq -e '.version == "v1.1.1"' "$OPSRABBIT_DEPLOY_DIR/.release/current.json" >/dev/null
+jq -e '.daemon != null and .web != null' "$test_root/containers.json" >/dev/null
+[[ ! -f "$OPSRABBIT_DEPLOY_DIR/.release/pending.json" ]]
+cmp "$test_root/expected-removed" "$test_root/removed-images"
+# Reapplying the committed version completes the outstanding cleanup.
+"$ctl" update --skip-backup > "$test_root/output" 2>&1
+printf '%s\n' "$registry/vg-backend:v1.0.9" "$registry/vg-sandbox:v0.1.0" "$registry/vg-sandbox:v0.9.0" "$registry/vg-webapp:v1.0.9" >> "$test_root/expected-removed"
+cmp "$test_root/expected-removed" "$test_root/removed-images"
+jq -e '.version == "v1.1.1"' "$OPSRABBIT_DEPLOY_DIR/.release/current.json" >/dev/null
+[[ ! -f "$OPSRABBIT_DEPLOY_DIR/.release/pending.json" ]]
+# Reapplication is idempotent; status and restart never clean up.
+cp "$test_root/removed-images" "$test_root/removed-before"
+"$ctl" update --skip-backup > "$test_root/output" 2>&1
+add_image "$registry/vg-backend:v0.4.0" sha256:newly-unused
+"$ctl" status > "$test_root/output" 2>&1
+"$ctl" restart > "$test_root/output" 2>&1
+cmp "$test_root/removed-before" "$test_root/removed-images"
+# A sandbox selected by digest protects every tag for its image identity.
+sed -i "s|^OPSRABBIT_SANDBOX_IMAGE=.*|OPSRABBIT_SANDBOX_IMAGE=$registry/vg-sandbox@sha256:custom-digest|" "$OPSRABBIT_DEPLOY_DIR/.env"
+jq -c 'if .ID == "sha256:custom-sandbox" then .Digest="sha256:custom-digest" else . end' "$test_root/images.jsonl" > "$test_root/images.next"
+mv "$test_root/images.next" "$test_root/images.jsonl"
+"$ctl" update --skip-backup > "$test_root/output" 2>&1
+printf '%s\n' "$registry/vg-backend:v0.4.0" >> "$test_root/removed-before"
+cmp "$test_root/removed-before" "$test_root/removed-images"
+# Sandbox versions advance independently of the product version.
+add_image "$registry/vg-sandbox:v2.0.0" sha256:old-independent-sandbox
+add_image "$registry/vg-sandbox:v2.2.0" sha256:future-independent-sandbox
+jq '.images.sandbox="123456789012.dkr.ecr.us-east-1.amazonaws.com/vg-sandbox:v2.1.0"' "$test_root/release.json" > "$test_root/release.next"
+mv "$test_root/release.next" "$test_root/release.json"
+"$ctl" update --skip-backup > "$test_root/output" 2>&1
+printf '%s\n' "$registry/vg-backend:v0.7.0" "$registry/vg-sandbox:v1.0.0" "$registry/vg-sandbox:v1.0.1" "$registry/vg-sandbox:v2.0.0" >> "$test_root/removed-before"
+cmp "$test_root/removed-before" "$test_root/removed-images"
 # Exercise the real root migration entrypoint in this disposable Linux container.
 printf '#!/bin/sh\nexit 88\n' > /usr/local/bin/opsrabbitctl
 cp "$OPSRABBIT_DEPLOY_DIR/docker-compose.yml" "$test_root/compose-before"

@@ -7,6 +7,22 @@ log="$TEST_RELEASE_ROOT/lifecycle.log"
 if [[ ! -f "$state" ]]; then echo '{"daemon":"old-backend","web":"old-web","worker":"old-backend"}' > "$state"; fi
 image_id() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 case "$*" in
+  'image ls --no-trunc --digests --format {{json .}}')
+    [[ "${TEST_FAILURE:-}" != image-list ]] || exit 1
+    if [[ -f "$TEST_RELEASE_ROOT/images.jsonl" ]]; then cat "$TEST_RELEASE_ROOT/images.jsonl"; fi; exit 0 ;;
+  'container ls --all --quiet')
+    [[ "${TEST_FAILURE:-}" != container-list ]] || exit 1
+    if [[ -f "$TEST_RELEASE_ROOT/image-containers.json" ]]; then jq -r 'keys[]' "$TEST_RELEASE_ROOT/image-containers.json"; fi; exit 0 ;;
+  'container inspect --format {{.Image}} '*)
+    [[ "${TEST_FAILURE:-}" != container-inspect ]] || exit 1
+    jq -er --arg id "${*: -1}" '.[$id]' "$TEST_RELEASE_ROOT/image-containers.json"; exit ;;
+  'image rm '*)
+    [[ "$#" == 3 && "$3" != -* ]] || exit 1
+    [[ "${TEST_FAILURE:-}" != image-remove ]] || exit 1
+    printf '%s\n' "$3" >> "$TEST_RELEASE_ROOT/removed-images"
+    printf 'remove %s\n' "$3" >> "$log"
+    jq -c --arg ref "$3" 'select((.Repository + ":" + .Tag) != $ref)' "$TEST_RELEASE_ROOT/images.jsonl" > "$TEST_RELEASE_ROOT/images.next"
+    mv "$TEST_RELEASE_ROOT/images.next" "$TEST_RELEASE_ROOT/images.jsonl"; exit 0 ;;
   'login '*) cat >/dev/null; exit 0 ;;
   'manifest inspect '*) exit 0 ;;
   'pull '*) [[ "${TEST_FAILURE:-}" != pull ]] || exit 1; printf '%s %s\n' "$3" "${*: -1}" >> "$TEST_RELEASE_ROOT/pull-platforms"; printf '%s\n' "${*: -1}" >> "$TEST_RELEASE_ROOT/pulled-images"; exit 0 ;;
@@ -38,7 +54,7 @@ case "$args" in
     exit 0 ;;
   *'config --format json') cat "$TEST_RELEASE_ROOT/compose.json"; exit 0 ;;
   *' pull') [[ "${TEST_FAILURE:-}" != provider-pull ]]; exit ;;
-  *'config --quiet'|*' ps') exit 0 ;;
+  *'config --quiet'|*' ps'|*' restart') exit 0 ;;
   *' ps -q '*) service="${*: -1}"; if jq -e --arg service "$service" '.[$service] != null' "$state" >/dev/null; then echo "fixture-$service"; fi; exit 0 ;;
 esac
 service="${*: -1}"

@@ -38,6 +38,7 @@ cat > "$fixture_bin/docker" <<'DOCKER'
 #!/usr/bin/env bash
 set -euo pipefail
 case "$*" in
+  'image ls --no-trunc --digests --format {{json .}}'|'container ls --all --quiet') exit 0 ;;
   *'config --format json') cat "$TEST_RELEASE_ROOT/compose.json"; exit 0 ;;
   *'config --services') printf 'postgres\ndaemon\nweb\nopensandbox-server\n'; exit 0 ;;
   *' ps -q daemon'|*' ps -q web') echo fixture-container; exit 0 ;;

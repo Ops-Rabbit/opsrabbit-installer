@@ -99,6 +99,8 @@ opsrabbitctl auth status
 
 ## Operations
 
+Updates automatically remove older unused version-tagged `vg-backend`, `vg-webapp` and `vg-sandbox` images from the configured ECR registry. Before downloading a release, cleanup removes versions older than each repository’s installed release pin while preserving current, pending and selected release pins. After the matched backend/frontend pair passes verification and the new release is committed, cleanup removes superseded unused images too. Images referenced by any running or stopped container, the configured sandbox image (including aliases of its image identity), newer releases, custom tags and unrelated repositories are preserved. No containers, volumes, backups or build cache are pruned, and removal is never forced. Cleanup errors fail the command; if cleanup fails after commit, the verified new release remains installed and running. Reapply that same version after correcting the Docker error. Older images may need to be pulled again for a separately reviewed, database-compatible recovery. This policy requires upgrading the installed helper and release library; existing immutable installer archives are unchanged.
+
 For a caller that already has an ECR password, `deploy` and `update` accept the optional `--ecr-password-stdin` flag:
 
 ```bash
