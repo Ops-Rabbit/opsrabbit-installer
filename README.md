@@ -4,15 +4,15 @@ This bundle deploys the core OpsRabbit stack and its OpenSandbox lifecycle servi
 
 ## Quick install
 
-Install the tagged `v1.5.0` release on a Debian or Ubuntu host:
+Install the tagged `v1.5.2` release on a Debian or Ubuntu host:
 
 ```bash
-curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.5.0/install.sh | sudo bash
+curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.5.2/install.sh | sudo bash
 ```
 
-This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.5.0` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
+This URL points to an immutable GitHub Release asset, not the mutable `main` branch. The release bootstrap is pinned internally to the same `v1.5.2` tag. It downloads that release's archive and published SHA-256 file, verifies the archive, and only then starts the interactive installer. Review `install.sh` before piping it to a privileged shell if your security policy requires it.
 
-To install another version, replace `v1.5.0` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
+To install another version, replace `v1.5.2` in the URL with the required release tag. Run it from an interactive SSH session; the installer now fails immediately with guidance if no controlling terminal is available.
 
 ## Requirements
 
@@ -72,7 +72,7 @@ Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRA
 
 It configures Docker's official stable apt repository and installs or upgrades Docker Engine, Buildx, and Compose to that repository's latest candidate. When migrating from distribution-provided Docker packages, their removal can briefly interrupt running containers, but Docker data in `/var/lib/docker` is preserved. It also installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it installs the browser-specific AppArmor policy and uses Ubuntu's packaged Bubblewrap policy for ordinary commands when available, otherwise installing the bundled fallback. Policy changes are rolled back if installation fails. It does not disable the host-wide restriction or require a reboot. This also removes an unchanged conflicting fallback left by installer `v1.3.0` on Ubuntu 26.04.
 
-Product releases use immutable version tags. Floating image aliases are not used. Installer **v1.5.0** includes versioned product-release management and post-install HTTPS commands. Older published release assets remain unchanged. Installer versions and application/product versions are separate.
+Product releases use immutable version tags. Floating image aliases are not used. Installer **v1.5.2** adds automatic cleanup of older unused OpsRabbit images during upgrades. Versioned product-release management and post-install HTTPS commands remain available. Older published release assets remain unchanged. Installer versions and application/product versions are separate.
 
 ## AWS authentication
 
@@ -175,7 +175,7 @@ For an existing host already on the documented OpenSandbox 1.1.1/browser configu
 
 1. Grant the selected deployment identity pull access to `vg-opensandbox-server`, including its cross-account repository policy where applicable. Back up the database, lifecycle state, `.env`, Compose and TOML securely. Disable application sandbox execution and allow managed sandboxes to retire before recreating the lifecycle service.
 2. Edit **only** `services.opensandbox-server.image` in the deployed `docker-compose.yml` to the pin in [the source Compose file](bundle/docker-compose.yml), preserving the existing registry, configuration, secrets, volumes and network restrictions. If your registry is a mirror, publish the identical image there first. A custom lifecycle image is preserved and verified against that effective Compose selection, not silently replaced by the helper.
-3. From the new extracted bundle, refresh the helper and adopt/reapply a compatible complete product release using the [existing-host migration](#upgrade-an-existing-installation-to-installer-v150) procedure (`sudo ./migrate.sh --backup-confirmed --version vX.Y.Z`). This is also a product deployment, not a helper-only refresh. It does **not** copy new Compose/TOML files: step 2 is required. Do not rerun the full installer or delete lifecycle state. All pulls finish before maintenance; the helper then waits for lifecycle health, reconnects the runtime bridge and verifies the running image before starting the application.
+3. From the new extracted bundle, refresh the helper and adopt/reapply a compatible complete product release using the [existing-host migration](#upgrade-an-existing-installation-to-installer-v152) procedure (`sudo ./migrate.sh --backup-confirmed --version vX.Y.Z`). This is also a product deployment, not a helper-only refresh. It does **not** copy new Compose/TOML files: step 2 is required. Do not rerun the full installer or delete lifecycle state. All pulls finish before maintenance; the helper then waits for lifecycle health, reconnects the runtime bridge and verifies the running image before starting the application.
 4. Run `opsrabbitctl status` and `opsrabbitctl health`. Confirm no pending release, then enable sandboxing for one controlled thread and verify workspace commands, file reads, permitted network access and browser open → snapshot → close before restoring normal traffic. Existing sandbox settings are never enabled automatically.
 
 Lifecycle recreation briefly interrupts its API/proxy. No host reboot is required. If startup or image verification fails after maintenance starts, web stays stopped and the pending product version must be recovered as described below. Earlier failures during image pulls leave the existing services unchanged.
@@ -214,7 +214,7 @@ For a URL-only change, preserve the image pins and edit the relevant URL setting
 
 Licensed under the [Apache License 2.0](LICENSE).
 
-## Upgrade an existing installation to installer v1.5.0
+## Upgrade an existing installation to installer v1.5.2
 
 Use this migration for older installations, including hosts installed with v1.3.4 or v1.4.x. **Do not use the fresh-install curl command as the upgrade procedure.** Updating application images alone does not update `opsrabbitctl` or its bundled libraries.
 
@@ -224,7 +224,7 @@ Use this migration for older installations, including hosts installed with v1.3.
    ```bash
    upgrade_dir="$(mktemp -d)"
    cd "$upgrade_dir"
-   release_url="https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.5.0"
+   release_url="https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.5.2"
    curl -fSL "$release_url/opsrabbit-aws-image-bundle.tar.gz" -o opsrabbit-aws-image-bundle.tar.gz
    curl -fSL "$release_url/opsrabbit-aws-image-bundle.tar.gz.sha256" -o opsrabbit-aws-image-bundle.tar.gz.sha256
    sha256sum --check opsrabbit-aws-image-bundle.tar.gz.sha256 && \
@@ -242,7 +242,7 @@ Use this migration for older installations, including hosts installed with v1.3.
    # sudo ./migrate.sh --backup-confirmed --version vX.Y.Z
    ```
 
-   Replace `vX.Y.Z` with an actual product version from the release catalog, not installer version `v1.5.0`. For a nonstandard deployment directory, use `sudo env OPSRABBIT_DEPLOY_DIR=/your/existing/path ./migrate.sh --backup-confirmed` instead. The host needs `jq` and `flock` (`util-linux`); install missing prerequisites before migration.
+   Replace `vX.Y.Z` with an actual product version from the release catalog, not installer version `v1.5.2`. For a nonstandard deployment directory, use `sudo env OPSRABBIT_DEPLOY_DIR=/your/existing/path ./migrate.sh --backup-confirmed` instead. The host needs `jq` and `flock` (`util-linux`); install missing prerequisites before migration.
 4. Check the result:
 
    ```bash

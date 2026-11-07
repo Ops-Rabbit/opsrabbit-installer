@@ -61,6 +61,36 @@ Completed locally:
   backend/frontend product files; those workspace-specific checks and V8 coverage
   do not apply to this shell-only change.
 
-No PR opened, paid CI started, production helper replaced or upgrade deployed.
-The code is locally implemented and verified, with publication blocked by the
-unrelated required full-scan finding.
+At initial closeout, no PR was opened and no paid CI, production helper update or
+upgrade was started. The user subsequently explicitly requested PR publication;
+PR #31 was opened with the unrelated full-scan finding disclosed.
+
+
+## Patch release follow-up
+
+The user requested publishing a patch installer release and correcting README
+links. Latest published installer was v1.5.1; select v1.5.2. Update both README
+fresh-install instructions and root existing-host migration links to that immutable
+release. Keep the bootstrap source unpinned: the existing tag-triggered release
+workflow stamps default_version into the published install.sh asset. Publish all
+three assets (bootstrap, bundle, SHA-256), verify their checksum and version pin,
+and verify the bundled cleanup code matches the released commit. No customer host
+upgrade is included. PR #31 validation passed for 774e886; review/validation of the
+follow-up and release verification are pending. The user explicitly requested the
+PR after disclosure of the existing Semgrep finding; that finding remains recorded.
+
+
+Follow-up review: independent documentation review found no issues. Full-scope
+release autoreview reported two findings, both adjudicated against source:
+- P1 historical sandbox cutoff: invalid for installer-produced release state.
+  `release_validate` requires a SemVer sandbox pin before `current.json` is written,
+  including the initial implementation at 3bbdc5d and published v1.5.1. Historical
+  build tags occur in `.env`, which is separately preserved/adopted; cleanup does
+  not use that value as its version cutoff. No validation weakening or fallback
+  was added for externally corrupted manifests.
+- P2 index-only old README links: addressed by staging and committing the complete
+  reviewed README delta. Working-tree links already used v1.5.2 during review.
+
+The follow-up changes only documentation; prior product-code verification remains
+applicable. Release workflow and published asset checks will verify v1.5.2 after
+publication; no customer-host deployment is part of this request.
