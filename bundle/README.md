@@ -2,6 +2,16 @@
 
 This bundle deploys the core OpsRabbit stack and its OpenSandbox lifecycle service without copying application source code to the server. It contains only the installer, operations helper, runtime configuration, and image-only Compose manifest.
 
+## Quick install
+
+Install installer **v1.5.2** on a new Debian or Ubuntu host from an interactive SSH session:
+
+```bash
+curl -fsSL https://github.com/Ops-Rabbit/opsrabbit-installer/releases/download/v1.5.2/install.sh | sudo bash
+```
+
+The versioned bootstrap downloads the matching bundle and verifies its published SHA-256 checksum. Existing installations must use the migration procedure below to refresh the helper and its release library; application image updates alone do not install the new cleanup behavior.
+
 ## Requirements
 
 The installer recognizes x86-64 and 64-bit ARM hosts, including AWS Graviton. Release manifests must advertise the host platform; older releases without a platform list are amd64-only and are rejected on ARM64 before application services change. After each product, custom sandbox and lifecycle-server pull, the helper inspects the actual image OS/architecture before maintenance; a Docker platform warning cannot permit emulation. 32-bit ARM is unsupported. ARM64 rollout remains blocked until the pinned patched OpenSandbox server is replaced with a published, verified multi-platform digest; this branch retains the existing pin until that artifact exists.
@@ -60,7 +70,7 @@ Advanced deployments can override defaults with `OPSRABBIT_INSTALL_USER`, `OPSRA
 
 It configures Docker's official stable apt repository and installs or upgrades Docker Engine, Buildx, and Compose to that repository's latest candidate. When migrating from distribution-provided Docker packages, their removal can briefly interrupt running containers, but Docker data in `/var/lib/docker` is preserved. It also installs the official AWS CLI v2 bundle when `aws` is unavailable, creates the deployment user, generates persistent application and OpenSandbox secrets, logs in to ECR, pre-pulls the sandbox image, starts the services, and checks backend, web, and OpenSandbox health. On Ubuntu hosts enforcing restricted unprivileged user namespaces, it installs the browser-specific AppArmor policy and uses Ubuntu's packaged Bubblewrap policy for ordinary commands when available, otherwise installing the bundled fallback. Policy changes are rolled back if installation fails. It does not disable the host-wide restriction or require a reboot. This also removes an unchanged conflicting fallback left by installer `v1.3.0` on Ubuntu 26.04.
 
-Product releases use immutable version tags. Floating image aliases are not used. Published installer v1.3.4 assets remain unchanged; the versioned-release functionality in this source tree requires a new installer release before use.
+Product releases use immutable version tags. Floating image aliases are not used. Installer **v1.5.2** adds automatic cleanup of older unused OpsRabbit images during upgrades. Earlier published installer assets remain unchanged.
 
 ## AWS authentication
 
@@ -198,6 +208,8 @@ OpenSandbox must already use the documented 1.1.1 server/execd/egress pins and t
 Application startup performs its normal database migrations. Historical OpsRabbit sandbox aliases become the sandbox pin baked into the selected backend release; custom sandbox image values and enablement remain unchanged. Existing sandbox containers must retire before using a changed image. Do not automatically downgrade binaries after a database migration; use the release-compatible backup/recovery procedure.
 
 ## Product release selection and recovery
+
+Updates automatically remove older unused version-tagged `vg-backend`, `vg-webapp` and `vg-sandbox` images from the configured ECR registry. Before downloading a release, cleanup removes versions older than each repository’s installed release pin while preserving current, pending and selected release pins. After the matched backend/frontend pair passes verification and the new release is committed, cleanup removes superseded unused images too. Images referenced by any running or stopped container, the configured sandbox image (including aliases of its image identity), newer releases, custom tags and unrelated repositories are preserved. No containers, volumes, backups or build cache are pruned, and removal is never forced. Cleanup errors fail the command; if cleanup fails after commit, the verified new release remains installed and running. Reapply that same version after correcting the Docker error. Older images may need to be pulled again for a separately reviewed, database-compatible recovery. This policy requires upgrading the installed helper and release library; existing immutable installer archives are unchanged.
 
 The first product version is `v1.1.1`; the application build workflow reserves a new patch version per run by default. Release operators can choose minor or major. Backend/frontend share the version and source revision. Installer versions are separate. Product release metadata is served directly over S3 HTTPS: [`catalog.json`](https://opsrabbit-releases-921870554228-us-east-1.s3.us-east-1.amazonaws.com/releases/catalog.json) lists complete stable versions, and each manifest lives at `https://opsrabbit-releases-921870554228-us-east-1.s3.us-east-1.amazonaws.com/releases/vX.Y.Z/release.json`. Automatic selection compares SemVer numerically; exact selection must also be listed in the catalog. The publisher uploads the versioned manifest before adding its version to the catalog. An empty catalog means no product release is available. Metadata downloads need no AWS credentials; image pulls still use the selected ECR authentication. Installer archive releases remain separate. Catalog failures leave the running deployment unchanged. Version reservations from failed builds are never published to customers.
 

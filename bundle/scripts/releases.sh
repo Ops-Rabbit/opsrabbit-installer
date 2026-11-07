@@ -109,6 +109,48 @@ release_pull_native() {
   fi
 }
 
+release_cleanup_images() {
+  local installed="${release_dir}/current.json" images containers used='[]' protected plan image
+  local manifests=("${release_dir}/current.json")
+  [[ -f "${installed}" ]] || return 0
+  [[ -z "${release_candidate}" ]] || manifests+=("${release_candidate}")
+  [[ ! -f "${release_dir}/pending.json" ]] || manifests+=("${release_dir}/pending.json")
+  # Snapshot all tags and container identities before deleting anything. Stopped
+  # containers and sandbox workloads belong to the operator too.
+  images="$(docker image ls --no-trunc --digests --format '{{json .}}')" || return 1
+  containers="$(docker container ls --all --quiet)" || return 1
+  if [[ -n "${containers}" ]]; then
+    while IFS= read -r image; do
+      image="$(docker container inspect --format '{{.Image}}' "${image}")" || return 1
+      used="$(jq -c --arg image "${image}" '. + [$image]' <<<"${used}")" || return 1
+    done <<<"${containers}"
+  fi
+  protected="$(jq -sc --arg sandbox "${sandbox_image}" '[.[].images[] | select(type == "string")] + [$sandbox]' "${manifests[@]}")" || return 1
+  plan="$(jq -sr --arg registry "${ecr_registry}" --argjson installed "$(cat "${installed}")" \
+    --argjson protected "${protected}" --argjson used "${used}" '
+    def semver: ltrimstr("v") | split(".") | map(tonumber);
+    . as $images
+    | ($used + [$images[] | select(
+        (.Repository + ":" + .Tag) as $ref | (.Repository + "@" + .Digest) as $digest
+        | ($protected | index($ref) != null or index($digest) != null)) | .ID]) as $keep
+    | $images[]
+    | select(.Repository == ($registry + "/vg-backend") or .Repository == ($registry + "/vg-webapp") or .Repository == ($registry + "/vg-sandbox"))
+    | select(.Tag | test("^v?(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"))
+    | (if .Repository == ($registry + "/vg-backend") then $installed.images.backend
+       elif .Repository == ($registry + "/vg-webapp") then $installed.images.frontend
+       else $installed.images.sandbox end | split(":") | last) as $installed_tag
+    | select((.Tag | semver) < ($installed_tag | semver))
+    | select(.ID as $id | $keep | index($id) == null)
+    | .Repository + ":" + .Tag
+  ' <<<"${images}" | sort -u)" || return 1
+  while IFS= read -r image; do
+    [[ -n "${image}" ]] || continue
+    echo "Removing older unused OpsRabbit image: ${image}"
+    # Docker remains the final reference/race guard. Never force deletion.
+    docker image rm "${image}" || { echo "Image cleanup failed; inspect Docker references and retry the update." >&2; return 1; }
+  done <<<"${plan}"
+}
+
 release_deploy() {
   local requested="" adopt=false backup=false skip_backup=false ecr_password_stdin=false option override worker_running=false worker_defined=false pending_file worker_id image host_platform lifecycle_image
   while [[ "$#" -gt 0 ]]; do
@@ -140,6 +182,7 @@ release_deploy() {
   if [[ -f "${release_dir}/pending.json" && "$(jq -r .version "${release_dir}/pending.json")" != "$(jq -r .version "${release_candidate}")" ]]; then
     echo "An interrupted release is pending. Resume that exact version before selecting another release." >&2; return 1
   fi
+  release_cleanup_images || return 1
   while IFS= read -r image; do release_pull_native "${host_platform}" "${image}" || return 1; done < <(jq -r '.images | .backend,.frontend,.sandbox' "${release_candidate}")
   # A custom workload is preserved rather than replaced by the release default.
   if [[ "${sandbox_image}" != "$(jq -r .images.sandbox "${release_candidate}")" ]] && ! release_manages_sandbox "${sandbox_image}"; then
@@ -198,4 +241,5 @@ release_deploy() {
   release_started=false
   rm -f -- "${release_dir}/pending.json" "${override}"
   echo "Installed $(jq -r .version "${release_dir}/current.json")."
+  release_cleanup_images || return 1
 }
