@@ -323,6 +323,8 @@ For EventBridge to reach a private endpoint, configure its private API Destinati
 
 See [Send AWS Spot notifications to private OpsRabbit](docs/aws-spot-notifications.md) for same-account and cross-account setup with copyable AWS CLI examples.
 
-## Public webhook ALB reference
+## Public webhook Terraform examples
 
 The [Terraform client reference](terraform/public-webhooks/README.md) exposes webhook endpoints on an existing private EC2 instance through a public HTTPS ALB. It targets the installer’s web listener on HTTP `3000`. Forwarding requires the configured hostname, a non-empty `X-OpsRabbit-Webhook-Token` header and allowed source CIDRs (all IPv4 by default). Tokens are configured per inbound in OpsRabbit. The reference stays outside the install bundle and is never applied by the installer.
+
+The [API Gateway Terraform example](terraform/public-webhooks-api-gateway/README.md) exposes webhook routes through a Regional HTTP API, VPC Link and Cloud Map for an existing private EC2 instance. OpsRabbit validates inbound credentials.

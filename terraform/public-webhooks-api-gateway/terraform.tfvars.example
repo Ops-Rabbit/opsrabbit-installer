@@ -1,0 +1,16 @@
+aws_region          = "us-east-1"
+vpc_id              = "vpc-REPLACE"
+vpc_link_subnet_ids = ["subnet-REPLACE-A", "subnet-REPLACE-B"]
+instance_id         = "i-REPLACE"
+certificate_arn     = "arn:aws:acm:us-east-1:123456789012:certificate/REPLACE"
+opsrabbit_hostname  = "hooks.example.com"
+
+# Optional: create a DNS alias in an existing public Route 53 hosted zone.
+# route53_zone_id = "ZREPLACE"
+
+# Optional: override the web listener port.
+# target_port = 3000
+
+# Optional: use an existing HTTPS listener and verify its certificate name.
+# target_port            = 443
+# target_tls_server_name = "opsrabbit.example.com"
