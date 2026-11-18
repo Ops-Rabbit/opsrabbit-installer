@@ -62,3 +62,22 @@ variable "target_tls_server_name" {
   type        = string
   default     = null
 }
+
+variable "enable_source_allowlist" {
+  description = "Enable a Python Lambda authorizer that restricts source IPs."
+  type        = bool
+  default     = false
+}
+
+variable "allowed_source_cidrs" {
+  description = "Explicit IPv4 or IPv6 source CIDRs when the allowlist is enabled."
+  type        = set(string)
+  default     = []
+
+  validation {
+    condition = length(var.allowed_source_cidrs) <= 50 && alltrue([
+      for cidr in var.allowed_source_cidrs : can(cidrhost(cidr, 0))
+    ])
+    error_message = "Provide at most 50 valid IPv4 or IPv6 CIDRs."
+  }
+}

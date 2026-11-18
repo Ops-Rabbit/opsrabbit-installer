@@ -111,7 +111,16 @@ resource "aws_apigatewayv2_route" "webhooks" {
   api_id             = aws_apigatewayv2_api.webhooks.id
   route_key          = "ANY /webhooks/{proxy+}"
   target             = "integrations/${aws_apigatewayv2_integration.webhooks.id}"
-  authorization_type = "NONE"
+  authorization_type = var.enable_source_allowlist ? "CUSTOM" : "NONE"
+  authorizer_id      = var.enable_source_allowlist ? aws_apigatewayv2_authorizer.source_allowlist[0].id : null
+  depends_on         = [aws_lambda_permission.source_allowlist]
+
+  lifecycle {
+    precondition {
+      condition     = !var.enable_source_allowlist || length(var.allowed_source_cidrs) > 0
+      error_message = "Enabling the source allowlist requires at least one explicit CIDR."
+    }
+  }
 }
 
 resource "aws_apigatewayv2_stage" "webhooks" {
