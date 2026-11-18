@@ -30,7 +30,10 @@ run "webhook_only_custom_domain" {
     condition = (
       aws_apigatewayv2_api.webhooks.disable_execute_api_endpoint &&
       aws_apigatewayv2_route.webhooks.route_key == "ANY /webhooks/{proxy+}" &&
-      aws_apigatewayv2_route.webhooks.authorization_type == "NONE"
+      aws_apigatewayv2_route.webhooks.authorization_type == "NONE" &&
+      length(aws_lambda_function.source_allowlist) == 0 &&
+      length(aws_iam_role.source_allowlist) == 0 &&
+      length(aws_apigatewayv2_authorizer.source_allowlist) == 0
     )
     error_message = "The custom-domain webhook route should forward requests for OpsRabbit to authenticate."
   }
@@ -79,4 +82,39 @@ run "reject_mismatched_vpc" {
   }
 
   expect_failures = [aws_apigatewayv2_vpc_link.webhooks]
+}
+
+run "allowlist_enabled" {
+  command = plan
+
+  variables {
+    enable_source_allowlist = true
+    allowed_source_cidrs    = ["192.000.2.7/24", "2001:db8::1/32"]
+  }
+
+  assert {
+    condition = (
+      aws_apigatewayv2_route.webhooks.authorization_type == "CUSTOM" &&
+      length(aws_lambda_function.source_allowlist) == 1 &&
+      aws_apigatewayv2_authorizer.source_allowlist[0].authorizer_result_ttl_in_seconds == 0 &&
+      contains([for source in data.archive_file.source_allowlist[0].source : source.content], jsonencode(["192.0.2.0/24", "2001:db8::/32"]))
+    )
+    error_message = "Enabled filtering must evaluate the configured sources on every request."
+  }
+}
+
+run "reject_empty_enabled_allowlist" {
+  command = plan
+  variables {
+    enable_source_allowlist = true
+  }
+  expect_failures = [aws_apigatewayv2_route.webhooks]
+}
+
+run "reject_invalid_cidr" {
+  command = plan
+  variables {
+    allowed_source_cidrs = ["invalid"]
+  }
+  expect_failures = [var.allowed_source_cidrs]
 }

@@ -36,7 +36,25 @@ Set `route53_zone_id` to create a public A alias in an existing Route 53 zone. F
 
 - The gateway routes only `/webhooks/{proxy+}` and forwards the request to OpsRabbit.
 - Send `X-OpsRabbit-Webhook-Token` for inbounds configured to use it. OpsRabbit validates the credential. Keep token values out of Terraform inputs and state.
-- The public route accepts requests from any source. Missing or invalid credentials reach OpsRabbit for validation.
+- By default, the public route accepts requests from any source. Missing or invalid credentials reach OpsRabbit for validation.
 - Use the custom hostname. The generated `execute-api` endpoint is disabled.
 
 See [operating notes](OPERATIONS.md) for rollout checks, target replacement and costs.
+
+
+## Optional source IP allowlist
+
+Set both inputs to restrict callers using a Python Lambda authorizer:
+
+```hcl
+enable_source_allowlist = true
+allowed_source_cidrs    = ["192.0.2.0/24", "2001:db8::/32"]
+```
+
+Replace these documentation ranges with your senders' actual public egress ranges. The feature defaults to disabled. Enabling requires at least one CIDR, with up to 50 IPv4 or IPv6 entries. Host bits in CIDRs are normalized to their network.
+
+The authorizer checks API Gateway's request context source IP for every request, with caching disabled. Forwarded headers do not affect the decision. Requests outside the allowlist receive 403 before reaching OpsRabbit. An allowed source still needs the token or provider credentials configured in OpsRabbit.
+
+The enabled option creates a Lambda function, execution role and invocation permission. The function uses Python's standard library and has permission only to submit X-Ray diagnostics and has no log-writing permissions. Terraform packages its source. Budget for Lambda request and compute charges. Disable and apply to remove the authorizer resources.
+
+The enabled Lambda uses active X-Ray tracing for infrastructure diagnostics. AWS retains X-Ray traces for 30 days. Operator IAM controls access. Trace metadata follows AWS retention independently of inbound deletion or Terraform destroy. The handler does not record tokens, headers or payloads. Include tracing usage in cost estimates.

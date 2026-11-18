@@ -4,3 +4,4 @@
 *.tfplan
 terraform.tfvars
 crash.log
+__pycache__/
