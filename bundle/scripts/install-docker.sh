@@ -25,6 +25,35 @@ version_codename="$(read_os_release_value VERSION_CODENAME)"
 ubuntu_codename="$(read_os_release_value UBUNTU_CODENAME)"
 
 case "${os_id}" in
+  amzn)
+    [[ "$(read_os_release_value VERSION_ID)" == 2023 ]] || { echo "Amazon Linux 2023 is required." >&2; exit 1; }
+    # Amazon Linux packages Buildx with Docker Engine. Install Compose for all users.
+    compose_version=v5.8.0
+    arch="$(uname -m)"
+    case "${arch}" in
+      x86_64) digest=b8840f5008c447f41fce0a57ae3adeab42c89b1eb6e6012524bcabbfb4ffbaf6 ;;
+      aarch64) digest=1a9c918b2fb49b9c87f0018c64b5abd0d30715155e98dc939779fbaee6c414d3 ;;
+      *) echo "Unsupported Amazon Linux architecture: ${arch}." >&2; exit 1 ;;
+    esac
+    dnf install -y docker
+    plugin_dir=/usr/local/lib/docker/cli-plugins
+    install -d -m 0755 "${plugin_dir}"
+    plugin="${plugin_dir}/docker-compose"
+    if ! printf '%s  %s\n' "${digest}" "${plugin}" | sha256sum --status --check 2>/dev/null || [[ ! -x "${plugin}" ]]; then
+      staged="$(mktemp "${plugin_dir}/.compose.XXXXXX")"
+      trap 'rm -f -- "${staged}"' EXIT
+      curl --fail --silent --show-error --location \
+        "https://github.com/docker/compose/releases/download/${compose_version}/docker-compose-linux-${arch}" -o "${staged}"
+      printf '%s  %s\n' "${digest}" "${staged}" | sha256sum --check
+      chmod 0755 "${staged}"
+      mv -fT -- "${staged}" "${plugin}"
+    fi
+    systemctl enable --now docker
+    docker version >/dev/null
+    docker buildx version
+    docker compose version
+    exit 0
+    ;;
   debian)
     docker_distribution="debian"
     docker_suite="${version_codename}"

@@ -101,7 +101,7 @@ install_aws_cli() {
 }
 
 echo "OpsRabbit image-only AWS deployment installer"
-echo "This installs the latest stable Docker Engine from Docker's official repository, AWS CLI when missing, OpenSandbox, and a Docker-enabled deployment user."
+echo "This installs Docker Engine, AWS CLI when missing, OpenSandbox, and a Docker-enabled deployment user."
 echo
 echo "[Installer 1/4] Reviewing deployment settings..."
 
@@ -152,7 +152,7 @@ echo "  Registry: ${ecr_registry}"
 echo "  Product release: newest stable version (backend and web together)"
 echo "  Sandbox: ${sandbox_image}"
 echo "  OpenSandbox port: 127.0.0.1:${opensandbox_port}"
-echo "  Docker: latest stable Engine, Buildx, and Compose from Docker's official apt repository"
+echo "  Docker: Engine, Buildx, and Compose"
 if [[ "${restricted_userns}" == true ]]; then
   echo "  AppArmor: configure workspace and Chromium compatibility for restricted user namespaces"
 else
@@ -168,17 +168,22 @@ if [[ -f "${env_path}" || -f "${deploy_dir}/docker-compose.yml" ]]; then
   fi
 fi
 
-if ! command -v apt-get >/dev/null 2>&1; then
-  echo "This installer currently supports Debian and Ubuntu hosts with apt-get." >&2
-  exit 1
-fi
-
 echo "[Installer 2/4] Installing and verifying host prerequisites..."
-apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl openssl unzip jq util-linux
-if [[ "${restricted_userns}" == true ]] && ! command -v apparmor_parser >/dev/null 2>&1; then
-  DEBIAN_FRONTEND=noninteractive apt-get install -y apparmor
-fi
+source /etc/os-release
+case "${ID}" in
+  amzn)
+    [[ "${VERSION_ID:-}" == 2023 ]] || { echo "Amazon Linux 2023 is required." >&2; exit 1; }
+    dnf install -y ca-certificates /usr/bin/curl openssl unzip jq /usr/bin/flock
+    ;;
+  debian|ubuntu)
+    apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl openssl unzip jq util-linux
+    if [[ "${restricted_userns}" == true ]] && ! command -v apparmor_parser >/dev/null 2>&1; then
+      DEBIAN_FRONTEND=noninteractive apt-get install -y apparmor
+    fi
+    ;;
+  *) echo "Unsupported operating system: ${ID}." >&2; exit 1 ;;
+esac
 "${script_dir}/scripts/install-docker.sh"
 install_aws_cli
 
